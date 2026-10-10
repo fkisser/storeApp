@@ -15,4 +15,23 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  server: {
+    proxy: {
+      '/api/settings': {
+        target: 'https://wt7ddvj5-8080.brs.devtunnels.ms',
+        changeOrigin: true,
+        rewrite: () => '/api/v1/stores/cafe-del-barrio/settings',
+      },
+      '/api/products': {
+        target: 'https://wt7ddvj5-8080.brs.devtunnels.ms',
+        changeOrigin: true,
+        rewrite: (path) => path.replace('/api/products', '/api/v1/stores/cafe-del-barrio/products'),
+      },
+      '/api/categories': {
+        target: 'https://wt7ddvj5-8080.brs.devtunnels.ms',
+        changeOrigin: true,
+        rewrite: () => '/api/v1/stores/cafe-del-barrio/categories',
+      },
+    },
+  },
 })

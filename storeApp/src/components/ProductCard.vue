@@ -1,5 +1,7 @@
 <script setup>
-defineProps({
+import { ref, watch } from 'vue'
+
+const props = defineProps({
   product: { type: Object, required: true },
   layout: { type: String, default: 'cards' },
   quantityLabel: { type: String, required: true },
@@ -13,11 +15,32 @@ defineProps({
 })
 
 defineEmits(['change-quantity', 'add-to-cart', 'remove-from-cart'])
+
+const displayInCart = ref(props.inCart)
+const imageFailed = ref(false)
+watch(() => [props.inCart, props.busy], ([inCart, busy]) => {
+  if (!busy) displayInCart.value = inCart
+}, { immediate: true })
+watch(() => props.product.image, () => {
+  imageFailed.value = false
+})
 </script>
 
 <template>
   <article class="product-card" :class="{ 'is-list': layout === 'list' }">
-    <img class="product-image" :src="product.image" :alt="product.name" loading="lazy" />
+    <img
+      v-if="product.image && !imageFailed"
+      class="product-image"
+      :src="product.image"
+      :alt="product.name"
+      loading="lazy"
+      @error="imageFailed = true"
+    />
+    <div v-else class="product-image product-image-fallback" role="img" :aria-label="`Imagen de ${product.name} no disponible`">
+      <svg v-if="product.imageFallback === 'pastry'" viewBox="0 0 64 64" aria-hidden="true"><path d="M10 48h44L48 21H16L10 48Zm7-27c0-7 7-7 7-14m8 14c0-7 7-7 7-14m-19 38v-9m12 9v-9m12 9v-9" /></svg>
+      <svg v-else-if="product.imageFallback === 'accessory'" viewBox="0 0 64 64" aria-hidden="true"><path d="M15 25h30l-3 27H18l-3-27Zm30 5h4a8 8 0 0 1 0 16h-6M21 19h18m-15-7h12v7H24z" /></svg>
+      <svg v-else viewBox="0 0 64 64" aria-hidden="true"><path d="M14 25h31l-3 27H17l-3-27Zm31 5h5a7 7 0 0 1 0 14h-7M21 18c0-5 6-5 6-11m5 11c0-5 6-5 6-11" /></svg>
+    </div>
 
     <div class="product-body">
       <div class="meta-row">
@@ -56,10 +79,14 @@ defineEmits(['change-quantity', 'add-to-cart', 'remove-from-cart'])
         <button
           type="button"
           :disabled="busy || inCart || unavailable"
+          :aria-label="busy ? 'Procesando producto' : inCart ? `Añadido ${product.name}` : product.isSoldOut ? `Agotado ${product.name}` : `Añadir ${product.name}`"
           @click="$emit('add-to-cart')"
         >
-          <span class="button-icon" aria-hidden="true">{{ inCart ? '✓' : '＋' }}</span>
-          {{ busy ? 'Procesando...' : product.isSoldOut ? 'Agotado' : inCart ? 'Añadido' : 'Añadir' }}
+          <span class="button-content" :class="{ 'is-loading': busy }" aria-hidden="true">
+            <span class="button-icon">{{ displayInCart ? '✓' : '＋' }}</span>
+            {{ product.isSoldOut ? 'Agotado' : displayInCart ? 'Añadido' : 'Añadir' }}
+          </span>
+          <span v-if="busy" class="loading-spinner" aria-hidden="true"></span>
         </button>
       </div>
     </div>
@@ -87,6 +114,23 @@ defineEmits(['change-quantity', 'add-to-cart', 'remove-from-cart'])
     height: 220px;
     object-fit: cover;
     background: #f4f4f4;
+  }
+
+  .product-image-fallback {
+    display: grid;
+    place-items: center;
+    background: #edf2ee;
+    color: #496650;
+  }
+
+  .product-image-fallback svg {
+    width: 4rem;
+    height: 4rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2;
   }
 
   .product-body {
@@ -198,6 +242,7 @@ defineEmits(['change-quantity', 'add-to-cart', 'remove-from-cart'])
   }
 
   .product-footer button {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -207,6 +252,32 @@ defineEmits(['change-quantity', 'add-to-cart', 'remove-from-cart'])
   .button-icon {
     font-size: 1rem;
     line-height: 1;
+  }
+
+  .button-content.is-loading {
+    visibility: hidden;
+  }
+
+  .loading-spinner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: loading-spin 0.75s linear infinite;
+  }
+
+  @keyframes loading-spin {
+    to { transform: translate(-50%, -50%) rotate(360deg); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .loading-spinner {
+      animation-duration: 1.5s;
+    }
   }
 
   .product-footer button:hover:not(:disabled) {
@@ -236,7 +307,7 @@ defineEmits(['change-quantity', 'add-to-cart', 'remove-from-cart'])
     padding: 1rem 1.2rem;
   }
 
-  @media (max-width: 400px) {
+  @media (max-width: 500px) {
     .product-description {
       display: none;
     }

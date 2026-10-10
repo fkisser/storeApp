@@ -1,22 +1,48 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import ProductCard from './components/ProductCard.vue'
 import CheckoutPage from './components/CheckoutPage.vue'
 import storeInfo from './data/store-info.json'
-const { storeId, slug, ecommerceName, updatedAt, bannerImg, bannerSlogan } = storeInfo
-const { primaryColor, secondaryColor, backgroundColor } = storeInfo.branding
+const storeName = ref('')
+const bannerSlogan = ref('')
+const branding = reactive({ primaryColor: '', secondaryColor: '', backgroundColor: '' })
+const settingsLoading = ref(true)
+watch(storeName, (name) => {
+  if (typeof document !== 'undefined') document.title = name
+}, { immediate: true })
 const storeLogoModules = import.meta.glob('./assets/**/*.{png,jpg,jpeg,svg,webp}', {
   query: '?url',
   import: 'default'
 })
 const logoUrl = ref('')
-const loadStoreLogo = async () => {
-  const configuredLogo = storeInfo.logoUrl
+const logoFailed = ref(false)
+const bannerImageUrl = ref('')
+const bannerImageFailed = ref(true)
+const loadStoreLogo = async (configuredLogo) => {
+  logoUrl.value = ''
+  logoFailed.value = false
   if (!configuredLogo) return
 
   const logoLoader = storeLogoModules[configuredLogo]
   logoUrl.value = logoLoader ? await logoLoader() : configuredLogo
 }
+const loadBannerImage = (configuredImage) => {
+  bannerImageUrl.value = ''
+  bannerImageFailed.value = true
+  if (!configuredImage) return
+
+  const image = new Image()
+  image.onload = () => {
+    bannerImageUrl.value = configuredImage
+    bannerImageFailed.value = false
+  }
+  image.onerror = () => {
+    bannerImageUrl.value = ''
+    bannerImageFailed.value = true
+  }
+  image.src = configuredImage
+}
+/*
 import productData from './data/products.json'
 const products = reactive(productData.map((product) => {
   const step = product.productType === 'weight' ? 0.25 : 1
@@ -26,7 +52,56 @@ const products = reactive(productData.map((product) => {
 
   return { ...product, step, quantity: initialQuantity }
 }))
+*/
+const products = reactive([])
+const categoryData = ref([])
+const productsLoading = ref(true)
+const productsLoadingMore = ref(false)
+const productsError = ref('')
+const productsMoreError = ref('')
+const productsOffset = ref(0)
+const productsHasMore = ref(true)
+const loadMoreSentinel = ref(null)
+const PRODUCTS_PAGE_SIZE = 20
+let productsObserver = null
 const CART_STORAGE_KEY = 'verduleria-del-patio-cart'
+
+watch(loadMoreSentinel, (sentinel) => {
+  if (sentinel) productsObserver?.observe(sentinel)
+}, { flush: 'post' })
+
+const normalizeApiProduct = (product) => {
+  const productType = product.unit?.symbol === 'kg' ? 'weight' : 'unit'
+  const step = productType === 'weight' ? 0.25 : 1
+  const maxQuantityPerOrder = product.maxQuantityPerOrder == null
+    ? null
+    : Number(product.maxQuantityPerOrder)
+  const imageEntry = product.imageUrls?.[0]
+  const image = typeof imageEntry === 'string' ? imageEntry : imageEntry?.url ?? imageEntry?.src ?? ''
+  const category = product.category?.name ?? 'Otros'
+
+  return {
+    id: product.id,
+    name: product.name,
+    description: product.description ?? '',
+    image,
+    imageFallback: category.toLocaleLowerCase('es').includes('pasteler')
+      ? 'pastry'
+      : category.toLocaleLowerCase('es').includes('accesor')
+        ? 'accessory'
+        : 'coffee',
+    category,
+    productType,
+    pricePerType: Number(product.pricePerUnit),
+    maxQuantityPerOrder,
+    isSoldOut: !product.available,
+    isVisible: true,
+    step,
+    quantity: product.available
+      ? Math.min(step, maxQuantityPerOrder ?? step)
+      : 0
+  }
+}
 
 const restoreSavedCart = () => {
   if (typeof window === 'undefined') return { id: '', items: [] }
@@ -57,17 +132,116 @@ const restoreSavedCart = () => {
   }
 }
 
-const savedCart = restoreSavedCart()
-const categories = computed(() => [
-  'Todas',
-  ...new Set(products.filter((product) => product.isVisible).map((product) => product.category))
-])
+const hasSavedCartItems = () => {
+  if (typeof window === 'undefined') return false
+
+  try {
+    return JSON.parse(window.localStorage.getItem(CART_STORAGE_KEY) ?? 'null')?.items?.length > 0
+  } catch {
+    return false
+  }
+}
+
+const loadProducts = async ({ append = false } = {}) => {
+  if (append) {
+    if (productsLoadingMore.value || !productsHasMore.value) return
+    productsLoadingMore.value = true
+    productsMoreError.value = ''
+  } else {
+    productsLoading.value = true
+    settingsLoading.value = true
+    productsError.value = ''
+    productsMoreError.value = ''
+    productsOffset.value = 0
+    productsHasMore.value = true
+  }
+
+  try {
+    const fetchJson = async (url) => {
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`Request failed: ${response.status}`)
+      return response.json()
+    }
+    const pageOffset = append ? productsOffset.value : 0
+    const pageLimit = !append && hasSavedCartItems() ? 100 : PRODUCTS_PAGE_SIZE
+    const [settingsResult, productsResult, categoriesResult] = await Promise.allSettled([
+      append ? Promise.resolve(null) : fetchJson('/api/settings'),
+      fetchJson(`/api/products?limit=${pageLimit}&offset=${pageOffset}`),
+      append ? Promise.resolve(null) : fetchJson('/api/categories')
+    ])
+
+    if (!append) {
+      const settings = settingsResult.status === 'fulfilled'
+        ? settingsResult.value
+        : {
+            name: storeInfo.ecommerceName,
+            description: storeInfo.bannerSlogan,
+            theme: {}
+          }
+      const theme = settings.theme ?? {}
+      storeName.value = settings.name ?? storeInfo.ecommerceName
+      bannerSlogan.value = settings.description ?? storeInfo.bannerSlogan
+      branding.primaryColor = theme.primaryColor ?? ''
+      branding.secondaryColor = theme.secondaryColor ?? ''
+      branding.backgroundColor = theme.backgroundColor ?? ''
+      await loadStoreLogo(theme.logoImageUrl ?? storeInfo.logoUrl)
+      loadBannerImage(theme.bannerImageUrl ?? storeInfo.bannerImg)
+    }
+
+    if (productsResult.status === 'rejected') throw productsResult.reason
+    const payload = productsResult.value
+    if (!Array.isArray(payload.products)) throw new Error('Invalid products payload')
+
+    const loadedProducts = payload.products.map(normalizeApiProduct)
+    if (append) {
+      const knownProductIds = new Set(products.map((product) => product.id))
+      products.push(...loadedProducts.filter((product) => !knownProductIds.has(product.id)))
+    } else {
+      products.splice(0, products.length, ...loadedProducts)
+      const categoryPayload = categoriesResult.status === 'fulfilled' ? categoriesResult.value : []
+      categoryData.value = Array.isArray(categoryPayload)
+        ? categoryPayload
+        : Array.isArray(categoryPayload?.categories)
+          ? categoryPayload.categories
+          : []
+      const savedCart = restoreSavedCart()
+      cartId.value = savedCart.id
+      cart.value = savedCart.items
+    }
+
+    productsOffset.value = Number(payload.offset ?? pageOffset) + loadedProducts.length
+    const totalProducts = Number(payload.total)
+    productsHasMore.value = loadedProducts.length > 0 && (Number.isFinite(totalProducts)
+      ? products.length < totalProducts
+      : loadedProducts.length >= pageLimit)
+  } catch {
+    if (append) {
+      productsMoreError.value = 'No se pudieron cargar más productos.'
+    } else {
+      productsError.value = 'No se pudieron cargar los productos. Comprueba la conexión y vuelve a intentarlo.'
+    }
+  } finally {
+    if (append) {
+      productsLoadingMore.value = false
+    } else {
+      productsLoading.value = false
+      settingsLoading.value = false
+    }
+  }
+}
+
+const categories = computed(() => {
+  const names = categoryData.value.length
+    ? categoryData.value.map((category) => category.name).filter(Boolean)
+    : products.filter((product) => product.isVisible).map((product) => product.category)
+  return ['Todas', ...new Set(names)]
+})
 
 const search = ref('')
 const selectedCategory = ref('Todas')
 const layout = ref('cards')
-const cartId = ref(savedCart.id)
-const cart = ref(savedCart.items)
+const cartId = ref('')
+const cart = ref([])
 const cartOpen = ref(false)
 const checkoutOpen = ref(false)
 const viewMenuOpen = ref(false)
@@ -207,7 +381,16 @@ const simulateServerCartSync = async ({ id, items }) => {
 }
 
 onMounted(async () => {
-  void loadStoreLogo()
+  if ('IntersectionObserver' in window) {
+    productsObserver = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting) && !productsMoreError.value) {
+        void loadProducts({ append: true })
+      }
+    }, { rootMargin: '400px 0px' })
+    if (loadMoreSentinel.value) productsObserver.observe(loadMoreSentinel.value)
+  }
+
+  await loadProducts()
 
   if (!cartId.value || cart.value.length === 0) {
     persistCart()
@@ -228,6 +411,10 @@ onMounted(async () => {
     persistCart()
   }
 })
+
+onBeforeUnmount(() => productsObserver?.disconnect())
+
+const loadNextProducts = () => loadProducts({ append: true })
 
 const updateProductQty = (product, delta) => {
   if (isUnavailable(product) || cartLoading.value) return
@@ -371,35 +558,52 @@ const selectView = (value) => {
 
 <template>
   <head>
-    <title>{{ ecommerceName }}</title>
-    <meta name="description" :content="`Bienvenido a ${ecommerceName}, tu tienda en línea de confianza.`">
+    <title>{{ storeName || 'Cargando tienda' }}</title>
+    <meta name="description" :content="`Bienvenido a ${storeName}, tu tienda en línea de confianza.`">
     <meta name="keywords" content="ecommerce, tienda online, compras, productos frescos, frutas, verduras">
-    <meta name="author" :content="`${ecommerceName}`">
+    <meta name="author" :content="storeName">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
   </head>
   <body>
     <main id="app" :style="{
-      '--primary-color': primaryColor,
-      '--secondary-color': secondaryColor,
-      '--background-color': backgroundColor,
-      '--banner-image': `url(${bannerImg})`
+      '--primary-color': branding.primaryColor,
+      '--secondary-color': branding.secondaryColor,
+      '--background-color': branding.backgroundColor,
+      '--banner-image': bannerImageUrl ? `url(${bannerImageUrl})` : 'none'
     }">
       <CheckoutPage
         v-if="checkoutOpen"
         :items="cartItems"
         :cart-id="cartId"
         :subtotal="subtotal"
-        :store-name="ecommerceName"
+        :store-name="storeName"
         @back="returnToStore"
         @complete="clearCompletedCart"
       />
       <template v-else>
       <section id="banner">
-        <div class="identity">
-          <img v-if="logoUrl" :src="logoUrl" :alt="ecommerceName + ' Logo'" class="logo" />
-          <h1>{{ ecommerceName }}</h1>
-        </div>
-        <h2>{{ bannerSlogan }}</h2>
+        <template v-if="settingsLoading">
+          <div class="identity identity-skeleton" aria-hidden="true">
+            <span class="skeleton-block skeleton-logo"></span>
+            <span class="skeleton-block skeleton-store-name"></span>
+          </div>
+          <span class="skeleton-block skeleton-banner-slogan" aria-hidden="true"></span>
+        </template>
+        <template v-else>
+          <div v-if="bannerImageFailed" class="banner-fallback-icon" aria-hidden="true">
+            <svg viewBox="0 0 64 64" fill="none">
+              <path d="M14 24h32l-3 27H17l-3-27Zm31 5h5a7 7 0 0 1 0 14h-7M21 17c0-4 5-4 5-9m7 9c0-4 5-4 5-9" />
+            </svg>
+          </div>
+          <div class="identity">
+            <img v-if="logoUrl && !logoFailed" :src="logoUrl" :alt="storeName + ' Logo'" class="logo" @error="logoFailed = true" />
+            <div v-else class="logo logo-fallback" role="img" :aria-label="`Logo de ${storeName}`">
+              <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 12h16l-1.5 14h-13L6 12Zm16 3h2a4 4 0 0 1 0 8h-3M10 8c0-2 3-2 3-5m4 5c0-2 3-2 3-5" /></svg>
+            </div>
+            <h1>{{ storeName }}</h1>
+          </div>
+          <h2>{{ bannerSlogan }}</h2>
+        </template>
       </section>
       
       <section id="tools">
@@ -425,7 +629,10 @@ const selectView = (value) => {
 
         <div class="categories">
           <h3>Categorías</h3>
-          <ul>
+          <ul v-if="productsLoading" class="category-skeletons" aria-hidden="true">
+            <li v-for="placeholder in 4" :key="placeholder" class="skeleton-block"></li>
+          </ul>
+          <ul v-else>
             <li
               v-for="category in categories"
               :key="category"
@@ -439,7 +646,32 @@ const selectView = (value) => {
       </section>
   
       <section id="products" :class="layout === 'list' ? 'products-list' : 'products-grid'">
-        <div v-if="filteredProducts.length === 0" class="empty-state">No se encontraron productos.</div>
+        <div v-if="productsLoading" class="product-skeleton-grid" role="status" aria-label="Cargando productos">
+          <article v-for="placeholder in 8" :key="placeholder" class="skeleton-product-card" :class="{ 'is-list': layout === 'list' }" aria-hidden="true">
+            <span class="skeleton-block skeleton-product-image"></span>
+            <div class="skeleton-product-body">
+              <div class="skeleton-meta-row">
+                <span class="skeleton-block skeleton-category"></span>
+                <span class="skeleton-block skeleton-price"></span>
+              </div>
+              <span class="skeleton-block skeleton-product-name"></span>
+              <div class="skeleton-description">
+                <span class="skeleton-block"></span>
+                <span class="skeleton-block"></span>
+              </div>
+              <span class="skeleton-block skeleton-quantity"></span>
+              <div class="skeleton-footer">
+                <span class="skeleton-block skeleton-subtotal"></span>
+                <span class="skeleton-block skeleton-add-button"></span>
+              </div>
+            </div>
+          </article>
+        </div>
+        <div v-else-if="productsError" class="empty-state">
+          <p>{{ productsError }}</p>
+          <button type="button" class="retry-products" @click="loadProducts">Reintentar</button>
+        </div>
+        <div v-else-if="filteredProducts.length === 0" class="empty-state">No se encontraron productos.</div>
         <ProductCard
           v-for="product in filteredProducts"
           :key="product.id"
@@ -457,6 +689,14 @@ const selectView = (value) => {
           @add-to-cart="addToCart(product)"
           @remove-from-cart="promptRemoveFromCart(product.id)"
         />
+        <div v-if="productsHasMore" class="load-more-region">
+          <p v-if="productsMoreError" class="load-more-error" role="alert">{{ productsMoreError }}</p>
+          <p v-else-if="productsLoadingMore" class="load-more-status" role="status">Cargando más productos...</p>
+          <button v-else type="button" class="load-more-button" @click="loadNextProducts">
+            Cargar más productos
+          </button>
+          <span ref="loadMoreSentinel" class="load-more-sentinel" aria-hidden="true"></span>
+        </div>
       </section>
 
       <div v-if="pendingRemoval" class="confirm-modal" @click.self="cancelRemoval">
@@ -534,8 +774,15 @@ const selectView = (value) => {
             <span>Total</span>
             <strong>${{ subtotal.toFixed(2) }}</strong>
           </div>
-          <button type="button" class="checkout-btn" :disabled="cartLoading || cartItems.length === 0" @click="beginCheckout">
-            {{ cartLoading ? 'Procesando...' : 'Finalizar compra' }}
+          <button
+            type="button"
+            class="checkout-btn"
+            :disabled="cartLoading || cartItems.length === 0"
+            :aria-label="cartLoading ? 'Procesando carrito' : 'Finalizar compra'"
+            @click="beginCheckout"
+          >
+            <span class="checkout-button-content" :class="{ 'is-loading': cartLoading }" aria-hidden="true">Finalizar compra</span>
+            <span v-if="cartLoading" class="loading-spinner" aria-hidden="true"></span>
           </button>
         </div>
       </aside>
@@ -569,6 +816,7 @@ const selectView = (value) => {
     border-radius: 20px;
   }
   #banner {
+    position: relative;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -589,6 +837,48 @@ const selectView = (value) => {
     flex-direction: column;
     align-items: center;
   }
+
+  .identity-skeleton {
+    gap: 0.8rem;
+  }
+
+  .skeleton-block {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    border-radius: 6px;
+    background: #e4e9e5;
+  }
+
+  .skeleton-block::after {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.62), transparent);
+    content: '';
+    transform: translateX(-100%);
+    animation: skeleton-shimmer 1.35s ease-in-out infinite;
+  }
+
+  @keyframes skeleton-shimmer {
+    to { transform: translateX(100%); }
+  }
+
+  .skeleton-logo {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+  }
+
+  .skeleton-store-name {
+    width: min(15rem, 70vw);
+    height: 1.6rem;
+  }
+
+  .skeleton-banner-slogan {
+    width: min(24rem, 75vw);
+    height: 1rem;
+    margin-top: 1rem;
+  }
   .logo {
     display: flex;
     width: 100px;
@@ -598,6 +888,40 @@ const selectView = (value) => {
     background-color: #fff;
     border: 3px solid var(--primary-color);
     border-radius: 50%;
+  }
+
+  .logo-fallback {
+    align-items: center;
+    justify-content: center;
+    color: var(--primary-color);
+  }
+
+  .logo-fallback svg {
+    width: 3rem;
+    height: 3rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+  }
+
+  .banner-fallback-icon {
+    position: absolute;
+    top: 50%;
+    right: clamp(1rem, 8vw, 7rem);
+    color: rgba(255, 255, 255, 0.2);
+    pointer-events: none;
+    transform: translateY(-50%);
+  }
+
+  .banner-fallback-icon svg {
+    width: clamp(6rem, 14vw, 12rem);
+    height: auto;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2;
   }
   #tools {
     display: flex;
@@ -709,6 +1033,13 @@ const selectView = (value) => {
     gap: 0.7rem;
   }
 
+  .categories ul.category-skeletons li {
+    width: 6.5rem;
+    height: 2.5rem;
+    padding: 0;
+    list-style: none;
+  }
+
   .categories li {
     cursor: pointer;
     padding: 0.6rem 1rem;
@@ -747,6 +1078,110 @@ const selectView = (value) => {
     grid-template-columns: 1fr;
   }
 
+  .product-skeleton-grid {
+    display: grid;
+    width: 100%;
+    grid-template-columns: inherit;
+    gap: 1rem;
+    grid-column: 1 / -1;
+  }
+
+  .skeleton-product-card {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.9);
+  }
+
+  .skeleton-product-image {
+    width: 100%;
+    height: 220px;
+    flex: 0 0 auto;
+    border-radius: 0;
+  }
+
+  .skeleton-product-body {
+    display: flex;
+    min-height: 100%;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.9rem;
+    padding: 1rem;
+  }
+
+  .skeleton-meta-row,
+  .skeleton-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .skeleton-category {
+    width: 5rem;
+    height: 1.7rem;
+    border-radius: 999px;
+  }
+
+  .skeleton-price {
+    width: 5.5rem;
+    height: 0.8rem;
+  }
+
+  .skeleton-product-name {
+    width: 72%;
+    height: 1.35rem;
+  }
+
+  .skeleton-description {
+    display: grid;
+    gap: 0.45rem;
+    min-height: 48px;
+  }
+
+  .skeleton-description .skeleton-block {
+    width: 100%;
+    height: 0.75rem;
+  }
+
+  .skeleton-description .skeleton-block:last-child {
+    width: 68%;
+  }
+
+  .skeleton-quantity {
+    height: 3rem;
+    border-radius: 12px;
+  }
+
+  .skeleton-subtotal {
+    width: 5.5rem;
+    height: 1.65rem;
+  }
+
+  .skeleton-add-button {
+    width: 6.5rem;
+    height: 2.8rem;
+    border-radius: 12px;
+  }
+
+  .skeleton-product-card.is-list {
+    flex-direction: row;
+  }
+
+  .skeleton-product-card.is-list .skeleton-product-image {
+    width: 170px;
+    min-width: 170px;
+    height: auto;
+    min-height: 170px;
+  }
+
+  .skeleton-product-card.is-list .skeleton-product-body {
+    padding: 1rem 1.2rem;
+  }
+
   .empty-state {
     text-align: center;
     padding: 2rem;
@@ -754,6 +1189,54 @@ const selectView = (value) => {
     background: rgba(255, 255, 255, 0.8);
     color: #555;
     font-weight: 600;
+  }
+
+  .retry-products {
+    border: 0;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    background: var(--primary-color);
+    color: white;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .load-more-region {
+    position: relative;
+    display: grid;
+    min-height: 3.5rem;
+    place-items: center;
+    grid-column: 1 / -1;
+    padding: 0.5rem;
+  }
+
+  .load-more-button {
+    min-height: 2.75rem;
+    padding: 0.65rem 1rem;
+    border: 1px solid var(--primary-color);
+    border-radius: 8px;
+    background: white;
+    color: var(--primary-color);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .load-more-status,
+  .load-more-error {
+    margin: 0;
+    color: #4b5563;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .load-more-sentinel {
+    position: absolute;
+    bottom: 0;
+    width: 1px;
+    height: 1px;
+    pointer-events: none;
   }
 
   .cart-fab {
@@ -1028,6 +1511,7 @@ const selectView = (value) => {
   }
 
   .checkout-btn {
+    position: relative;
     width: 100%;
     border: none;
     border-radius: 12px;
@@ -1037,6 +1521,32 @@ const selectView = (value) => {
     font-weight: 700;
     cursor: pointer;
     box-shadow: 0 12px 26px rgba(0, 0, 0, 0.12);
+  }
+
+  .checkout-button-content.is-loading {
+    visibility: hidden;
+  }
+
+  .loading-spinner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 1em;
+    height: 1em;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: loading-spin 0.75s linear infinite;
+  }
+
+  @keyframes loading-spin {
+    to { transform: translate(-50%, -50%) rotate(360deg); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .loading-spinner {
+      animation-duration: 1.5s;
+    }
   }
 
   .checkout-btn:disabled {
@@ -1049,6 +1559,12 @@ const selectView = (value) => {
       right: 1rem;
       bottom: 1rem;
       top: auto;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton-block::after {
+      animation-duration: 2.8s;
     }
   }
 </style>

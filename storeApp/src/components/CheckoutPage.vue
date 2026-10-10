@@ -178,8 +178,14 @@ const confirmOrder = async () => {
             <div class="summary-total"><span>Total de productos</span><strong>${{ subtotal.toFixed(2) }}</strong></div>
           </div>
           <p v-if="form.fulfillment === 'delivery'" class="delivery-note">El costo de envío se confirma al coordinar la entrega.</p>
-          <button class="primary-button submit-order" type="submit" :disabled="sending || items.length === 0">
-            {{ sending ? 'Enviando pedido...' : 'Confirmar pedido' }}
+          <button
+            class="primary-button submit-order"
+            type="submit"
+            :disabled="sending || items.length === 0"
+            :aria-label="sending ? 'Enviando pedido' : 'Confirmar pedido'"
+          >
+            <span class="submit-button-content" :class="{ 'is-loading': sending }" aria-hidden="true">Confirmar pedido</span>
+            <span v-if="sending" class="loading-spinner" aria-hidden="true"></span>
           </button>
         </aside>
       </form>
@@ -498,8 +504,35 @@ const confirmOrder = async () => {
 }
 
 .submit-order {
+  position: relative;
   width: 100%;
   margin-top: 1.2rem;
+}
+
+.submit-button-content.is-loading {
+  visibility: hidden;
+}
+
+.loading-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: loading-spin 0.75s linear infinite;
+}
+
+@keyframes loading-spin {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner {
+    animation-duration: 1.5s;
+  }
 }
 
 .order-complete {
