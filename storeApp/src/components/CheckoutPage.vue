@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 
 const props = defineProps({
   items: { type: Array, required: true },
+  cartId: { type: String, required: true },
   subtotal: { type: Number, required: true },
   storeName: { type: String, required: true }
 })
@@ -38,14 +39,31 @@ const formatQuantity = (item) => {
 }
 
 const confirmOrder = async () => {
-  if (sending.value || props.items.length === 0) return
+  if (sending.value || props.items.length === 0 || !props.cartId) return
 
   sending.value = true
+  const order = {
+    cartId: props.cartId,
+    customer: {
+      name: form.name,
+      phone: form.phone,
+      email: form.email
+    },
+    fulfillment: {
+      method: form.fulfillment,
+      address: form.fulfillment === 'delivery' ? form.address : '',
+      locality: form.fulfillment === 'delivery' ? form.locality : '',
+      notes: form.fulfillment === 'delivery' ? form.notes : ''
+    },
+    paymentMethod: form.payment,
+    items: props.items.map((item) => ({ productId: item.id, quantity: item.quantity })),
+    subtotal: props.subtotal
+  }
   orderReference.value = `VDP-${Math.floor(100000 + Math.random() * 900000)}`
   await new Promise((resolve) => window.setTimeout(resolve, 900))
   completed.value = true
   sending.value = false
-  emit('complete')
+  emit('complete', order)
 }
 </script>
 

@@ -1,10 +1,22 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import ProductCard from './components/ProductCard.vue'
 import CheckoutPage from './components/CheckoutPage.vue'
 import storeInfo from './data/store-info.json'
-const { storeId, slug, ecommerceName, updatedAt, logoUrl, bannerImg, bannerSlogan } = storeInfo
+const { storeId, slug, ecommerceName, updatedAt, bannerImg, bannerSlogan } = storeInfo
 const { primaryColor, secondaryColor, backgroundColor } = storeInfo.branding
+const storeLogoModules = import.meta.glob('./assets/**/*.{png,jpg,jpeg,svg,webp}', {
+  query: '?url',
+  import: 'default'
+})
+const logoUrl = ref('')
+const loadStoreLogo = async () => {
+  const configuredLogo = storeInfo.logoUrl
+  if (!configuredLogo) return
+
+  const logoLoader = storeLogoModules[configuredLogo]
+  logoUrl.value = logoLoader ? await logoLoader() : configuredLogo
+}
 import productData from './data/products.json'
 const products = reactive(productData.map((product) => {
   const step = product.productType === 'weight' ? 0.25 : 1
@@ -14,6 +26,38 @@ const products = reactive(productData.map((product) => {
 
   return { ...product, step, quantity: initialQuantity }
 }))
+const CART_STORAGE_KEY = 'verduleria-del-patio-cart'
+
+const restoreSavedCart = () => {
+  if (typeof window === 'undefined') return { id: '', items: [] }
+
+  try {
+    const savedCart = JSON.parse(window.localStorage.getItem(CART_STORAGE_KEY) ?? 'null')
+    if (!savedCart || typeof savedCart.id !== 'string' || !savedCart.id || !Array.isArray(savedCart.items)) {
+      return { id: '', items: [] }
+    }
+
+    const items = savedCart.items.flatMap((entry) => {
+      const product = products.find((item) => item.id === entry.id)
+      const quantity = Number(entry.quantity)
+      if (!product || !Number.isFinite(quantity) || quantity <= 0) return []
+
+      const limit = Math.min(
+        product.stock ?? Number.POSITIVE_INFINITY,
+        product.maxQuantityPerOrder ?? Number.POSITIVE_INFINITY
+      )
+      if (limit < product.step) return []
+
+      return [{ id: product.id, quantity: Math.min(limit, Math.max(product.step, quantity)) }]
+    })
+
+    return items.length ? { id: savedCart.id, items } : { id: '', items: [] }
+  } catch {
+    return { id: '', items: [] }
+  }
+}
+
+const savedCart = restoreSavedCart()
 const categories = computed(() => [
   'Todas',
   ...new Set(products.filter((product) => product.isVisible).map((product) => product.category))
@@ -22,7 +66,8 @@ const categories = computed(() => [
 const search = ref('')
 const selectedCategory = ref('Todas')
 const layout = ref('cards')
-const cart = ref([])
+const cartId = ref(savedCart.id)
+const cart = ref(savedCart.items)
 const cartOpen = ref(false)
 const checkoutOpen = ref(false)
 const viewMenuOpen = ref(false)
@@ -63,6 +108,30 @@ const cartItems = computed(() =>
     })
     .filter(Boolean)
 )
+
+const persistCart = () => {
+  if (typeof window === 'undefined') return
+
+  try {
+    if (!cartId.value || cart.value.length === 0) {
+      window.localStorage.removeItem(CART_STORAGE_KEY)
+      return
+    }
+
+    window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({
+      id: cartId.value,
+      items: cart.value.map(({ id, quantity }) => ({ id, quantity }))
+    }))
+  } catch {
+    // Storage can be unavailable in private browsing contexts.
+  }
+}
+
+watch(cart, () => {
+  if (cart.value.length === 0) cartId.value = ''
+  persistCart()
+}, { deep: true })
+watch(cartId, persistCart)
 
 const totalItems = computed(() =>
   cartItems.value.reduce((sum, item) =>
@@ -123,6 +192,43 @@ const formatCartQuantity = (quantity, productType) => {
   return `${quantity.toFixed(0)} u`
 }
 
+const createCartId = () => {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+    const value = Math.floor(Math.random() * 16)
+    return (character === 'x' ? value : (value & 0x3) | 0x8).toString(16)
+  })
+}
+
+const simulateServerCartSync = async ({ id, items }) => {
+  await new Promise((resolve) => window.setTimeout(resolve, 800))
+  return { id, items: items.map((item) => ({ ...item })) }
+}
+
+onMounted(async () => {
+  void loadStoreLogo()
+
+  if (!cartId.value || cart.value.length === 0) {
+    persistCart()
+    return
+  }
+
+  cartLoading.value = true
+  const request = {
+    id: cartId.value,
+    items: cart.value.map(({ id, quantity }) => ({ id, quantity }))
+  }
+
+  try {
+    const response = await simulateServerCartSync(request)
+    if (response.id === cartId.value) cart.value = response.items
+  } finally {
+    cartLoading.value = false
+    persistCart()
+  }
+})
+
 const updateProductQty = (product, delta) => {
   if (isUnavailable(product) || cartLoading.value) return
 
@@ -171,6 +277,7 @@ const addToCart = (product) => {
   if (nextQuantity <= (existing?.quantity ?? 0)) return
 
   simulateCartRequest()
+  if (!cartId.value) cartId.value = createCartId()
 
   if (existing) {
     existing.quantity = nextQuantity
@@ -242,9 +349,13 @@ const returnToStore = () => {
   checkoutOpen.value = false
 }
 
-const clearCompletedCart = () => {
+const clearCompletedCart = (order) => {
+  if (!order || order.cartId !== cartId.value) return
+
   cart.value = []
+  cartId.value = ''
   productQty.value = {}
+  persistCart()
 }
 
 const filterByCategory = (category) => {
@@ -276,6 +387,7 @@ const selectView = (value) => {
       <CheckoutPage
         v-if="checkoutOpen"
         :items="cartItems"
+        :cart-id="cartId"
         :subtotal="subtotal"
         :store-name="ecommerceName"
         @back="returnToStore"
@@ -284,7 +396,7 @@ const selectView = (value) => {
       <template v-else>
       <section id="banner">
         <div class="identity">
-          <img :src="logoUrl" :alt="ecommerceName + ' Logo'" class="logo" />
+          <img v-if="logoUrl" :src="logoUrl" :alt="ecommerceName + ' Logo'" class="logo" />
           <h1>{{ ecommerceName }}</h1>
         </div>
         <h2>{{ bannerSlogan }}</h2>
