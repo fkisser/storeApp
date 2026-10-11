@@ -6,7 +6,7 @@ import { formatCurrency } from '../utils/formatCurrency.js'
 const props = defineProps({
   items: { type: Array, required: true },
   cartToken: { type: String, required: true },
-  revision: { type: [String, Number], required: true },
+  revision: { type: [String, Number], default: null },
   subtotal: { type: Number, required: true },
   discountAmount: { type: Number, required: true },
   totalAmount: { type: Number, required: true },
@@ -87,10 +87,7 @@ const confirmOrder = async () => {
 <template>
   <div class="checkout-page">
     <header class="checkout-topbar">
-      <button type="button" class="back-link" :disabled="sending" @click="emit('back')">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6M9 12h12" /></svg>
-        <span>Volver a la tienda</span>
-      </button>
+      <Button label="Volver a la tienda" icon="pi pi-arrow-left" text :disabled="sending" @click="emit('back')" />
       <p class="checkout-store">{{ storeName }}</p>
     </header>
 
@@ -102,7 +99,7 @@ const confirmOrder = async () => {
       <h1>Gracias, {{ form.name }}</h1>
       <p>Registramos tu pedido. Guarda este número de referencia:</p>
       <strong class="order-reference">{{ orderReference }}</strong>
-      <button type="button" class="primary-button" @click="emit('back')">Volver a la tienda</button>
+      <Button label="Volver a la tienda" icon="pi pi-arrow-left" @click="emit('back')" />
     </section>
 
     <template v-else>
@@ -120,16 +117,16 @@ const confirmOrder = async () => {
             <h2>Datos de contacto</h2>
             <label class="field">
               <span>Nombre y apellido</span>
-              <input v-model.trim="form.name" name="name" autocomplete="name" required />
+              <InputText v-model.trim="form.name" name="name" autocomplete="name" required />
             </label>
             <div class="field-row">
               <label class="field">
                 <span>Teléfono</span>
-                <input v-model.trim="form.phone" name="phone" type="tel" autocomplete="tel" required />
+                <InputText v-model.trim="form.phone" name="phone" type="tel" autocomplete="tel" required />
               </label>
               <label class="field">
                 <span>Email <small>Opcional</small></span>
-                <input v-model.trim="form.email" name="email" type="email" autocomplete="email" />
+                <InputText v-model.trim="form.email" name="email" type="email" autocomplete="email" />
               </label>
             </div>
           </section>
@@ -137,27 +134,27 @@ const confirmOrder = async () => {
           <section class="checkout-section">
             <h2>Cómo recibir tu pedido</h2>
             <div class="choice-grid">
-              <label class="choice-option" :class="{ selected: form.fulfillment === 'delivery' }">
-                <input v-model="form.fulfillment" type="radio" name="fulfillment" value="delivery" />
+              <label class="choice-option" :class="{ selected: form.fulfillment === 'delivery' }" for="fulfillment-delivery">
+                <RadioButton v-model="form.fulfillment" input-id="fulfillment-delivery" name="fulfillment" value="delivery" />
                 <span class="choice-copy"><strong>Envío a domicilio</strong><small>Coordinamos la entrega contigo</small></span>
               </label>
-              <label class="choice-option" :class="{ selected: form.fulfillment === 'pickup' }">
-                <input v-model="form.fulfillment" type="radio" name="fulfillment" value="pickup" />
+              <label class="choice-option" :class="{ selected: form.fulfillment === 'pickup' }" for="fulfillment-pickup">
+                <RadioButton v-model="form.fulfillment" input-id="fulfillment-pickup" name="fulfillment" value="pickup" />
                 <span class="choice-copy"><strong>Retiro en tienda</strong><small>Retiras tu pedido personalmente</small></span>
               </label>
             </div>
             <div v-if="form.fulfillment === 'delivery'" class="field-row address-fields">
               <label class="field">
                 <span>Dirección</span>
-                <input v-model.trim="form.address" name="address" autocomplete="street-address" required />
+                <InputText v-model.trim="form.address" name="address" autocomplete="street-address" required />
               </label>
               <label class="field">
                 <span>Localidad</span>
-                <input v-model.trim="form.locality" name="locality" autocomplete="address-level2" required />
+                <InputText v-model.trim="form.locality" name="locality" autocomplete="address-level2" required />
               </label>
               <label class="field field-full">
                 <span>Indicaciones para la entrega <small>Opcional</small></span>
-                <textarea v-model.trim="form.notes" name="notes" rows="2"></textarea>
+                <Textarea v-model.trim="form.notes" name="notes" rows="2" auto-resize />
               </label>
             </div>
           </section>
@@ -165,20 +162,21 @@ const confirmOrder = async () => {
           <section class="checkout-section">
             <h2>Forma de pago</h2>
             <div class="choice-grid payment-grid">
-              <label class="choice-option" :class="{ selected: form.payment === 'cash' }">
-                <input v-model="form.payment" type="radio" name="payment" value="cash" />
+              <label class="choice-option" :class="{ selected: form.payment === 'cash' }" for="payment-cash">
+                <RadioButton v-model="form.payment" input-id="payment-cash" name="payment" value="cash" />
                 <span class="choice-copy"><strong>Efectivo</strong><small>Al recibir o retirar</small></span>
               </label>
-              <label class="choice-option" :class="{ selected: form.payment === 'card' }">
-                <input v-model="form.payment" type="radio" name="payment" value="card" />
+              <label class="choice-option" :class="{ selected: form.payment === 'card' }" for="payment-card">
+                <RadioButton v-model="form.payment" input-id="payment-card" name="payment" value="card" />
                 <span class="choice-copy"><strong>Tarjeta</strong><small>Al recibir o retirar</small></span>
               </label>
             </div>
           </section>
         </div>
 
-        <aside class="order-summary">
-          <h2>Resumen del pedido</h2>
+        <Card class="order-summary">
+          <template #title>Resumen del pedido</template>
+          <template #content>
           <ul class="summary-items">
             <li v-for="item in items" :key="item.id">
               <div class="summary-item-copy">
@@ -196,17 +194,20 @@ const confirmOrder = async () => {
             <div class="summary-total"><span>Total</span><strong>{{ formatMoney(totalAmount) }}</strong></div>
           </div>
           <p v-if="form.fulfillment === 'delivery'" class="delivery-note">El costo de envío se confirma al coordinar la entrega.</p>
-          <button
-            class="primary-button submit-order"
+          <Button
+            class="submit-order"
             type="submit"
             :disabled="sending || items.length === 0 || revision === null"
+            label="Confirmar pedido"
+            :loading="sending"
+            loading-icon="pi pi-spin pi-spinner"
             :aria-label="sending ? 'Enviando pedido' : 'Confirmar pedido'"
-          >
-            <span class="submit-button-content" :class="{ 'is-loading': sending }" aria-hidden="true">Confirmar pedido</span>
-            <span v-if="sending" class="loading-spinner" aria-hidden="true"></span>
-          </button>
-          <p v-if="checkoutError" class="checkout-error" role="alert">{{ checkoutError }}</p>
-        </aside>
+          />
+          <Message v-if="checkoutError" severity="error" :closable="false" class="checkout-error">
+            {{ checkoutError }}
+          </Message>
+          </template>
+        </Card>
       </form>
     </template>
   </div>
@@ -333,29 +334,22 @@ const confirmOrder = async () => {
   font-weight: 500;
 }
 
-.field input,
-.field textarea {
+.field :deep(.p-inputtext),
+.field :deep(.p-textarea) {
   width: 100%;
   min-height: 2.9rem;
-  padding: 0.7rem 0.8rem;
-  border: 1px solid #cbd4cc;
-  border-radius: 8px;
-  background: #fff;
-  color: #18251c;
-  font: inherit;
   font-weight: 400;
-  outline: none;
 }
 
-.field textarea {
+.field :deep(.p-textarea) {
   min-height: 5rem;
   resize: vertical;
 }
 
-.field input:focus,
-.field textarea:focus {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.13);
+.field :deep(.p-inputtext:enabled:focus),
+.field :deep(.p-textarea:enabled:focus) {
+  border-color: var(--p-primary-color);
+  box-shadow: 0 0 0 3px var(--p-focus-ring-color);
 }
 
 .field-row {
@@ -385,15 +379,21 @@ const confirmOrder = async () => {
 
 .choice-option.selected {
   border-color: var(--primary-color);
-  background: rgba(46, 125, 50, 0.06);
+  background: color-mix(in srgb, var(--primary-color) 7%, transparent);
 }
 
-.choice-option input {
-  width: 1rem;
-  height: 1rem;
+.choice-option :deep(.p-radiobutton) {
   flex: 0 0 auto;
-  margin: 0.13rem 0 0;
-  accent-color: var(--primary-color);
+  margin-top: 0.13rem;
+}
+
+.choice-option :deep(.p-radiobutton-checked .p-radiobutton-box) {
+  border-color: var(--primary-color);
+  background: var(--primary-color);
+}
+
+.choice-option :deep(.p-radiobutton-box:focus-visible) {
+  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--primary-color) 24%, transparent);
 }
 
 .choice-copy {
@@ -424,10 +424,15 @@ const confirmOrder = async () => {
 .order-summary {
   position: sticky;
   top: 1rem;
-  padding: 1.2rem;
-  border: 1px solid rgba(24, 37, 28, 0.12);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.8);
+}
+
+.order-summary :deep(.p-card-body) {
+  padding: 1.25rem;
+}
+
+.order-summary :deep(.p-card-title) {
+  margin-bottom: 1rem;
+  font-size: 1.05rem;
 }
 
 .summary-items {
@@ -497,61 +502,9 @@ const confirmOrder = async () => {
   line-height: 1.5;
 }
 
-.primary-button {
-  display: inline-flex;
-  min-height: 2.9rem;
-  align-items: center;
-  justify-content: center;
-  padding: 0.75rem 1rem;
-  border: 0;
-  border-radius: 8px;
-  background: var(--primary-color);
-  color: #fff;
-  font: inherit;
-  font-weight: 800;
-  cursor: pointer;
-  transition: filter 0.2s ease, opacity 0.2s ease;
-}
-
-.primary-button:hover:not(:disabled) {
-  filter: brightness(1.08);
-}
-
-.primary-button:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
-
 .submit-order {
-  position: relative;
   width: 100%;
   margin-top: 1.2rem;
-}
-
-.submit-button-content.is-loading {
-  visibility: hidden;
-}
-
-.loading-spinner {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 1em;
-  height: 1em;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: loading-spin 0.75s linear infinite;
-}
-
-@keyframes loading-spin {
-  to { transform: translate(-50%, -50%) rotate(360deg); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .loading-spinner {
-    animation-duration: 1.5s;
-  }
 }
 
 .order-complete {

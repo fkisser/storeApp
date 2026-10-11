@@ -21,17 +21,16 @@ const jsonResponse = (payload, status = 200) => ({
 
 const createMountedCart = () => {
   const products = reactive([{ ...product }])
-  const onStoreUnavailable = vi.fn()
   let cart
   const app = createApp({
     setup() {
-      cart = useVisitorCart({ products, onStoreUnavailable })
+      cart = useVisitorCart({ products })
       return () => null
     }
   })
   app.mount(document.createElement('div'))
 
-  return { app, cart, onStoreUnavailable, products }
+  return { app, cart, products }
 }
 
 describe('useVisitorCart', () => {
@@ -78,7 +77,6 @@ describe('useVisitorCart', () => {
       revision: 0,
       items: []
     })
-    expect(mountedCart.onStoreUnavailable).not.toHaveBeenCalled()
   })
 
   it('does not treat another store slug cart as the current cart', () => {
@@ -168,14 +166,21 @@ describe('useVisitorCart', () => {
     expect(mountedCart.cart.cartItems.value).toEqual([])
   })
 
-  it.each([404, 500])('reports a %s response as a store availability error', async (status) => {
-    fetch.mockResolvedValueOnce(jsonResponse({ error: 'store unavailable' }, status))
+  it('keeps an expired-cart 404 local and clears only the cart credentials', async () => {
+    localStorage.setItem('vitrinapp-cart-almacen-demo', JSON.stringify({
+      token: 'expired-token',
+      revision: 3,
+      items: [{ id: 'product-1', quantity: 2 }]
+    }))
+    fetch.mockResolvedValueOnce(jsonResponse({ error: 'cart expired' }, 404))
     mountedCart = createMountedCart()
+    mountedCart.cart.restoreCart()
 
     await mountedCart.cart.initializeCart()
 
-    expect(mountedCart.onStoreUnavailable).toHaveBeenCalledOnce()
-    expect(mountedCart.onStoreUnavailable.mock.calls[0][0].status).toBe(status)
     expect(mountedCart.cart.cartToken.value).toBe('')
+    expect(mountedCart.cart.cartItems.value).toEqual([])
+    expect(mountedCart.cart.cartError.value).toMatch(/carrito/i)
+    expect(localStorage.getItem('vitrinapp-cart-almacen-demo')).toBeNull()
   })
 })

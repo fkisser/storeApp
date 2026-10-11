@@ -23,6 +23,13 @@ watch(storeNotFound, (notFound) => {
 watch(storeError, (error) => {
   if (error && typeof document !== 'undefined') document.title = 'Algo salió mal | VitrinApp'
 })
+watch(() => branding.backgroundColor, (backgroundColor) => {
+  if (isHome || typeof document === 'undefined') return
+  document.documentElement.style.setProperty(
+    '--store-background-color',
+    backgroundColor || storeInfo.branding.backgroundColor
+  )
+}, { immediate: true })
 if (isHome && typeof document !== 'undefined') document.title = 'VitrinApp | Tiendas locales'
 const storeLogoModules = import.meta.glob('./assets/**/*.{png,jpg,jpeg,svg,webp}', {
   query: '?url',
@@ -32,6 +39,84 @@ const logoUrl = ref('')
 const logoFailed = ref(false)
 const bannerImageUrl = ref('')
 const bannerImageFailed = ref(true)
+const getContrastColor = (color) => {
+  const hex = color.replace('#', '')
+  const normalizedHex = hex.length === 3
+    ? hex.split('').map((channel) => channel + channel).join('')
+    : hex
+
+  if (!/^[\da-f]{6}$/i.test(normalizedHex)) return '#fff'
+
+  const channels = normalizedHex.match(/[\da-f]{2}/gi).map((channel) => {
+    const value = Number.parseInt(channel, 16) / 255
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  })
+  const luminance = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+  return luminance > 0.42 ? '#202020' : '#fff'
+}
+const storeSecondaryContrastColor = computed(() => getContrastColor(
+  branding.secondaryColor || storeInfo.branding.secondaryColor
+))
+const storeThemeStyle = computed(() => {
+  const primaryColor = branding.primaryColor || storeInfo.branding.primaryColor
+  const secondaryColor = branding.secondaryColor || storeInfo.branding.secondaryColor
+  const hoverColor = `color-mix(in srgb, ${primaryColor} 86%, #000)`
+  const activeColor = `color-mix(in srgb, ${primaryColor} 76%, #000)`
+  const secondaryHoverColor = `color-mix(in srgb, ${secondaryColor} 86%, #000)`
+  const secondaryActiveColor = `color-mix(in srgb, ${secondaryColor} 76%, #000)`
+  const contrastColor = getContrastColor(primaryColor)
+  const secondaryContrastColor = getContrastColor(secondaryColor)
+
+  return {
+    '--primary-color': primaryColor,
+    '--secondary-color': secondaryColor,
+    '--secondary-contrast-color': secondaryContrastColor,
+    '--background-color': branding.backgroundColor || storeInfo.branding.backgroundColor,
+    '--banner-image': bannerImageUrl.value ? `url(${bannerImageUrl.value})` : 'none',
+    '--p-primary-color': primaryColor,
+    '--p-primary-hover-color': hoverColor,
+    '--p-primary-active-color': activeColor,
+    '--p-primary-contrast-color': contrastColor,
+    '--p-focus-ring-color': `color-mix(in srgb, ${primaryColor} 28%, transparent)`,
+    '--p-button-primary-background': primaryColor,
+    '--p-button-primary-hover-background': hoverColor,
+    '--p-button-primary-active-background': activeColor,
+    '--p-button-primary-border-color': primaryColor,
+    '--p-button-primary-hover-border-color': hoverColor,
+    '--p-button-primary-active-border-color': activeColor,
+    '--p-button-primary-color': contrastColor,
+    '--p-button-primary-hover-color': contrastColor,
+    '--p-button-primary-active-color': contrastColor,
+    '--p-button-primary-focus-ring-color': primaryColor,
+    '--p-button-secondary-background': secondaryColor,
+    '--p-button-secondary-hover-background': secondaryHoverColor,
+    '--p-button-secondary-active-background': secondaryActiveColor,
+    '--p-button-secondary-border-color': secondaryColor,
+    '--p-button-secondary-hover-border-color': secondaryHoverColor,
+    '--p-button-secondary-active-border-color': secondaryActiveColor,
+    '--p-button-secondary-color': secondaryContrastColor,
+    '--p-button-secondary-hover-color': secondaryContrastColor,
+    '--p-button-secondary-active-color': secondaryContrastColor,
+    '--p-button-secondary-focus-ring-color': secondaryColor,
+    '--p-badge-primary-background': primaryColor,
+    '--p-badge-primary-color': contrastColor,
+    '--p-inputtext-focus-border-color': primaryColor,
+    '--p-inputtext-focus-ring-color': primaryColor,
+    '--p-textarea-focus-border-color': primaryColor,
+    '--p-textarea-focus-ring-color': primaryColor,
+    '--p-tag-primary-background': primaryColor,
+    '--p-tag-primary-color': contrastColor,
+    '--p-togglebutton-checked-background': primaryColor,
+    '--p-togglebutton-checked-hover-background': hoverColor,
+    '--p-togglebutton-checked-border-color': primaryColor,
+    '--p-togglebutton-checked-color': contrastColor,
+    '--p-radiobutton-checked-background': primaryColor,
+    '--p-radiobutton-checked-hover-background': hoverColor,
+    '--p-radiobutton-checked-border-color': primaryColor,
+    '--p-radiobutton-checked-hover-border-color': hoverColor
+  }
+})
+
 const loadStoreLogo = async (configuredLogo) => {
   logoUrl.value = ''
   logoFailed.value = false
@@ -69,15 +154,6 @@ const PRODUCTS_PAGE_SIZE = 20
 let productsObserver = null
 let storeRetryTimer = null
 
-const handleStoreUnavailable = (error) => {
-  if (error.status === 404) {
-    storeNotFound.value = true
-    scheduleStoreRetry()
-  } else if (error.status >= 500) {
-    storeError.value = 'Algo salió mal. Inténtalo de nuevo más tarde.'
-  }
-}
-
 const {
   addToCart,
   cart,
@@ -109,7 +185,7 @@ const {
   totalItems,
   updateCart,
   updateProductQuantity: updateProductQty
-} = useVisitorCart({ products, onStoreUnavailable: handleStoreUnavailable })
+} = useVisitorCart({ products })
 
 watch(loadMoreSentinel, (sentinel) => {
   if (sentinel) productsObserver?.observe(sentinel)
@@ -213,9 +289,9 @@ const loadProducts = async ({ append = false } = {}) => {
       const theme = settings.theme ?? {}
       storeName.value = settings.name ?? storeInfo.ecommerceName
       bannerSlogan.value = settings.description ?? storeInfo.bannerSlogan
-      branding.primaryColor = theme.primaryColor ?? ''
-      branding.secondaryColor = theme.secondaryColor ?? ''
-      branding.backgroundColor = theme.backgroundColor ?? ''
+      branding.primaryColor = theme.primaryColor ?? storeInfo.branding.primaryColor
+      branding.secondaryColor = theme.secondaryColor ?? storeInfo.branding.secondaryColor
+      branding.backgroundColor = theme.backgroundColor ?? storeInfo.branding.backgroundColor
       await loadStoreLogo(theme.logoImageUrl ?? storeInfo.logoUrl)
       loadBannerImage(theme.bannerImageUrl ?? storeInfo.bannerImg)
     }
@@ -272,16 +348,53 @@ const selectedCategory = ref('Todas')
 const layout = ref('cards')
 const cartOpen = ref(false)
 const checkoutOpen = ref(false)
-const viewMenuOpen = ref(false)
 const pendingRemoval = ref(null)
+const removeDialogVisible = ref(false)
 const viewOptions = [
-  { value: 'cards', icon: '▦', label: 'Tarjetas' },
-  { value: 'list', icon: '☰', label: 'Lista' }
+  { value: 'cards', icon: 'pi pi-th-large', label: 'Tarjetas' },
+  { value: 'list', icon: 'pi pi-list', label: 'Lista' }
 ]
-
-const currentView = computed(
-  () => viewOptions.find((option) => option.value === layout.value) ?? viewOptions[0]
+const selectedViewLabel = computed(() =>
+  viewOptions.find((option) => option.value === layout.value)?.label ?? 'Tarjetas'
 )
+const viewTogglePt = computed(() => ({
+  pcToggleButton: {
+    root: {
+      style: {
+        '--p-togglebutton-checked-background': 'var(--primary-color)',
+        '--p-togglebutton-checked-hover-background': 'var(--p-primary-hover-color)',
+        '--p-togglebutton-checked-border-color': 'var(--primary-color)',
+        '--p-togglebutton-checked-color': 'var(--primary-color)',
+        '--p-togglebutton-checked-hover-color': 'var(--primary-color)',
+        '--p-togglebutton-icon-checked-color': 'var(--primary-color)'
+      }
+    }
+  }
+}))
+const sortOptions = [
+  { value: 'name-asc', label: 'Nombre A-Z', icon: 'pi pi-sort-alpha-up' },
+  { value: 'name-desc', label: 'Nombre Z-A', icon: 'pi pi-sort-alpha-down' },
+  { value: 'price-asc', label: 'Precio menor a mayor', icon: 'pi pi-sort-amount-up' },
+  { value: 'price-desc', label: 'Precio mayor a menor', icon: 'pi pi-sort-amount-down' }
+]
+const sortOption = ref(sortOptions.find((option) => option.value === 'name-asc'))
+const sortSelectPt = computed(() => {
+  const secondaryColor = branding.secondaryColor || storeInfo.branding.secondaryColor
+  const contrastColor = storeSecondaryContrastColor.value
+
+  return {
+    option: ({ context }) => context.selected
+      ? {
+          style: {
+            backgroundColor: secondaryColor,
+            color: contrastColor,
+            fontWeight: '700'
+          }
+        }
+      : undefined
+  }
+})
+const hoveredCategory = ref('')
 
 const filteredProducts = computed(() => {
   const term = search.value.trim().toLocaleLowerCase('es')
@@ -296,6 +409,18 @@ const filteredProducts = computed(() => {
 
     return product.isVisible && matchesCategory && matchesSearch
   })
+})
+
+const sortedProducts = computed(() => {
+  const [field, direction] = sortOption.value.value.split('-')
+  const sorted = [...filteredProducts.value]
+  sorted.sort((first, second) => {
+    const comparison = field === 'name'
+      ? first.name.localeCompare(second.name, 'es', { sensitivity: 'base' })
+      : first.pricePerType - second.pricePerType
+    return direction === 'desc' ? -comparison : comparison
+  })
+  return sorted
 })
 
 const retryStore = async () => {
@@ -329,6 +454,7 @@ const loadNextProducts = () => loadProducts({ append: true })
 const removeFromCart = (productId) => {
   removeCartItem(productId)
   pendingRemoval.value = null
+  removeDialogVisible.value = false
 }
 
 const promptRemoveFromCart = (productId) => {
@@ -336,14 +462,12 @@ const promptRemoveFromCart = (productId) => {
   if (!product) return
 
   pendingRemoval.value = product
+  removeDialogVisible.value = true
 }
 
 const cancelRemoval = () => {
   pendingRemoval.value = null
-}
-
-const toggleCart = () => {
-  cartOpen.value = !cartOpen.value
+  removeDialogVisible.value = false
 }
 
 const beginCheckout = async () => {
@@ -364,16 +488,17 @@ const beginCheckout = async () => {
 }
 
 const returnToStore = () => {
+  const storePath = `/${encodeURIComponent(STORE_SLUG)}`
+  if (window.location.pathname !== storePath) {
+    window.location.assign(storePath)
+    return
+  }
+
   checkoutOpen.value = false
 }
 
 const filterByCategory = (category) => {
   selectedCategory.value = category
-}
-
-const selectView = (value) => {
-  layout.value = value
-  viewMenuOpen.value = false
 }
 
 </script>
@@ -387,24 +512,25 @@ const selectView = (value) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
   </head>
   <body>
-    <main id="app" :style="{
-      '--primary-color': branding.primaryColor,
-      '--secondary-color': branding.secondaryColor,
-      '--background-color': branding.backgroundColor,
-      '--banner-image': bannerImageUrl ? `url(${bannerImageUrl})` : 'none'
-    }" :class="{ 'home-shell': isHome }">
+    <main id="app" :style="storeThemeStyle" :class="{ 'home-shell': isHome }">
       <WelcomePage v-if="isHome" />
-      <section v-else-if="storeNotFound" class="store-status" aria-labelledby="store-status-title">
-        <p class="store-status-code">Error 404</p>
-        <h1 id="store-status-title">No encontramos esta tienda</h1>
-        <p>No existe una tienda disponible con el identificador <strong>{{ STORE_SLUG }}</strong>.</p>
-        <a href="/">Volver al inicio</a>
+      <section v-else-if="storeNotFound" class="store-status">
+        <Message severity="error" :closable="false" class="store-status-message">
+          <div>
+            <strong>Error 404: No encontramos esta tienda</strong>
+            <p>No existe una tienda disponible con el identificador <strong>{{ STORE_SLUG }}</strong>.</p>
+            <Button as="a" href="/" label="Volver al inicio" severity="secondary" />
+          </div>
+        </Message>
       </section>
-      <section v-else-if="storeError" class="store-status" aria-labelledby="store-status-title">
-        <p class="store-status-code">Error del servidor</p>
-        <h1 id="store-status-title">Algo salió mal</h1>
-        <p>Inténtalo de nuevo más tarde.</p>
-        <button type="button" class="store-retry-button" @click="retryStore">Reintentar</button>
+      <section v-else-if="storeError" class="store-status">
+        <Message severity="error" :closable="false" class="store-status-message">
+          <div>
+            <strong>Error del servidor</strong>
+            <p>Algo salió mal. Inténtalo de nuevo más tarde.</p>
+            <Button label="Reintentar" icon="pi pi-refresh" @click="retryStore" />
+          </div>
+        </Message>
       </section>
       <CheckoutPage
         v-else-if="checkoutOpen"
@@ -423,21 +549,19 @@ const selectView = (value) => {
       <section id="banner">
         <template v-if="settingsLoading || storeNotFound">
           <div class="identity identity-skeleton" aria-hidden="true">
-            <span class="skeleton-block skeleton-logo"></span>
-            <span class="skeleton-block skeleton-store-name"></span>
+            <Skeleton shape="circle" size="6.25rem" />
+            <Skeleton width="15rem" height="1.6rem" />
           </div>
-          <span class="skeleton-block skeleton-banner-slogan" aria-hidden="true"></span>
+          <Skeleton width="min(24rem, 75vw)" height="1rem" class="banner-skeleton-slogan" />
         </template>
         <template v-else>
           <div v-if="bannerImageFailed" class="banner-fallback-icon" aria-hidden="true">
-            <svg viewBox="0 0 64 64" fill="none">
-              <path d="M14 24h32l-3 27H17l-3-27Zm31 5h5a7 7 0 0 1 0 14h-7M21 17c0-4 5-4 5-9m7 9c0-4 5-4 5-9" />
-            </svg>
+            <i class="pi pi-shop"></i>
           </div>
           <div class="identity">
             <img v-if="logoUrl && !logoFailed" :src="logoUrl" :alt="storeName + ' Logo'" class="logo" @error="logoFailed = true" />
             <div v-else class="logo logo-fallback" role="img" :aria-label="`Logo de ${storeName}`">
-              <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 12h16l-1.5 14h-13L6 12Zm16 3h2a4 4 0 0 1 0 8h-3M10 8c0-2 3-2 3-5m4 5c0-2 3-2 3-5" /></svg>
+              <i class="pi pi-shop" aria-hidden="true"></i>
             </div>
             <h1>{{ storeName }}</h1>
           </div>
@@ -447,72 +571,92 @@ const selectView = (value) => {
       
       <section id="tools">
         <div class="toolbar">
-          <input v-model="search" type="text" placeholder="Buscar productos..." />
+          <InputText v-model="search" type="search" placeholder="Buscar productos..." aria-label="Buscar productos" />
           <div class="view-select" aria-label="Elegir tipo de vista">
-            <span class="view-label">Vista</span>
-            <div class="view-options" role="tablist" aria-label="Opciones de vista">
-              <button
-                v-for="option in viewOptions"
-                :key="option.value"
-                type="button"
-                :class="{ active: layout === option.value }"
-                :title="option.label"
-                @click="selectView(option.value)"
-              >
-                <span class="view-icon">{{ option.icon }}</span>
-                <span>{{ option.label }}</span>
-              </button>
-            </div>
+            <span class="view-label">Vista:</span>
+            <SelectButton
+              v-model="layout"
+              :options="viewOptions"
+              option-label="label"
+              option-value="value"
+              aria-label="Opciones de vista"
+              :allow-empty="false"
+              :pt="viewTogglePt"
+            >
+              <template #option="slotProps">
+                <i :class="slotProps.option.icon" aria-hidden="true"></i>
+                <span>{{ slotProps.option.label }}</span>
+              </template>
+            </SelectButton>
           </div>
+          <label class="sort-select">
+            <span>Ordenar</span>
+            <Select v-model="sortOption" :options="sortOptions" option-label="label" aria-label="Ordenar productos" :pt="sortSelectPt">
+              <template #value="{ value, placeholder }">
+                <span v-if="value" class="sort-value"><i :class="value.icon" aria-hidden="true"></i>{{ value.label }}</span>
+                <span v-else>{{ placeholder }}</span>
+              </template>
+              <template #option="{ option }">
+                <span class="sort-value"><i :class="option.icon" aria-hidden="true"></i>{{ option.label }}</span>
+              </template>
+            </Select>
+          </label>
         </div>
 
         <div class="categories">
           <h3>Categorías</h3>
           <ul v-if="productsLoading || storeNotFound" class="category-skeletons" aria-hidden="true">
-            <li v-for="placeholder in 4" :key="placeholder" class="skeleton-block"></li>
+            <li v-for="placeholder in 4" :key="placeholder"><Skeleton width="5rem" height="2rem" /></li>
           </ul>
-          <ul v-else>
-            <li
+          <div v-else class="category-options">
+            <Button
               v-for="category in categories"
               :key="category"
+              :label="category"
+              :severity="selectedCategory === category ? 'primary' : 'secondary'"
+              :outlined="selectedCategory !== category && hoveredCategory !== category"
+              rounded
+              @mouseenter="hoveredCategory = category"
+              @mouseleave="hoveredCategory = ''"
               @click="filterByCategory(category)"
-              :class="{ selected: selectedCategory === category }"
-            >
-              {{ category }}
-            </li>
-          </ul>
+            />
+          </div>
         </div>
       </section>
   
       <section id="products" :class="layout === 'list' ? 'products-list' : 'products-grid'">
         <div v-if="productsLoading || storeNotFound" class="product-skeleton-grid" role="status" aria-label="Cargando productos">
-          <article v-for="placeholder in 8" :key="placeholder" class="skeleton-product-card" :class="{ 'is-list': layout === 'list' }" aria-hidden="true">
-            <span class="skeleton-block skeleton-product-image"></span>
-            <div class="skeleton-product-body">
-              <div class="skeleton-meta-row">
-                <span class="skeleton-block skeleton-category"></span>
-                <span class="skeleton-block skeleton-price"></span>
+          <Card v-for="placeholder in 8" :key="placeholder" class="skeleton-product-card" :class="{ 'is-list': layout === 'list' }" aria-hidden="true">
+            <template #header><Skeleton class="skeleton-product-image" /></template>
+            <template #content>
+              <div class="skeleton-product-body">
+                <div class="skeleton-meta-row">
+                  <Skeleton width="5rem" height="1.5rem" />
+                  <Skeleton width="4rem" height="1rem" />
+                </div>
+                <Skeleton width="75%" height="1.4rem" />
+                <div class="skeleton-description">
+                  <Skeleton width="100%" height="0.8rem" />
+                  <Skeleton width="68%" height="0.8rem" />
+                </div>
+                <Skeleton width="100%" height="2.75rem" />
+                <div class="skeleton-footer">
+                  <Skeleton width="5rem" height="1.8rem" />
+                  <Skeleton width="7rem" height="2.8rem" />
+                </div>
               </div>
-              <span class="skeleton-block skeleton-product-name"></span>
-              <div class="skeleton-description">
-                <span class="skeleton-block"></span>
-                <span class="skeleton-block"></span>
-              </div>
-              <span class="skeleton-block skeleton-quantity"></span>
-              <div class="skeleton-footer">
-                <span class="skeleton-block skeleton-subtotal"></span>
-                <span class="skeleton-block skeleton-add-button"></span>
-              </div>
-            </div>
-          </article>
+            </template>
+          </Card>
         </div>
         <div v-else-if="productsError" class="empty-state">
-          <p>{{ productsError }}</p>
-          <button type="button" class="retry-products" @click="loadProducts">Reintentar</button>
+          <Message severity="error" :closable="false">{{ productsError }}</Message>
+          <Button label="Reintentar" icon="pi pi-refresh" @click="loadProducts" />
         </div>
-        <div v-else-if="filteredProducts.length === 0" class="empty-state">No se encontraron productos.</div>
+        <Message v-else-if="filteredProducts.length === 0" severity="info" :closable="false" class="empty-state">
+          No se encontraron productos.
+        </Message>
         <ProductCard
-          v-for="product in filteredProducts"
+          v-for="product in sortedProducts"
           :key="product.id"
           :product="product"
           :layout="layout"
@@ -529,69 +673,75 @@ const selectView = (value) => {
           @remove-from-cart="promptRemoveFromCart(product.id)"
         />
         <div v-if="productsHasMore && !storeNotFound && !settingsLoading" class="load-more-region">
-          <p v-if="productsMoreError" class="load-more-error" role="alert">{{ productsMoreError }}</p>
-          <p v-else-if="productsLoadingMore" class="load-more-status" role="status">Cargando más productos...</p>
-          <button v-else type="button" class="load-more-button" @click="loadNextProducts">
-            Cargar más productos
-          </button>
+          <Message v-if="productsMoreError" severity="error" :closable="false">{{ productsMoreError }}</Message>
+          <Button v-else label="Cargar más productos" icon="pi pi-chevron-down" :loading="productsLoadingMore" @click="loadNextProducts" />
           <span ref="loadMoreSentinel" class="load-more-sentinel" aria-hidden="true"></span>
         </div>
       </section>
 
-      <div v-if="pendingRemoval" class="confirm-modal" @click.self="cancelRemoval">
-        <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-delete-title">
-          <h3 id="confirm-delete-title">Eliminar producto</h3>
-          <p>¿Deseas quitar <strong>{{ pendingRemoval.name }}</strong> del carrito?</p>
-          <div class="confirm-actions">
-            <button type="button" class="cancel-btn" @click="cancelRemoval">Cancelar</button>
-            <button type="button" class="confirm-btn" @click="removeFromCart(pendingRemoval.id)">Eliminar</button>
-          </div>
-        </div>
-      </div>
+      <Dialog
+        v-model:visible="removeDialogVisible"
+        modal
+        header="Eliminar producto"
+        :style="{ width: 'min(92vw, 28rem)' }"
+        @hide="cancelRemoval"
+      >
+        <p v-if="pendingRemoval">¿Deseas quitar <strong>{{ pendingRemoval.name }}</strong> del carrito?</p>
+        <template #footer>
+          <Button label="Cancelar" severity="secondary" text @click="cancelRemoval" />
+          <Button label="Eliminar" icon="pi pi-trash" severity="danger" @click="removeFromCart(pendingRemoval.id)" />
+        </template>
+      </Dialog>
 
-      <button
+      <Button
         v-if="!storeNotFound && !settingsLoading"
         type="button"
         class="cart-fab"
-        :class="{ open: cartOpen }"
-        @click="toggleCart"
+        icon="pi pi-shopping-cart"
+        :badge="String(totalItems)"
+        severity="secondary"
+        badge-severity="primary"
+        @click="cartOpen = true"
         :disabled="cartLoading"
         :aria-label="cartLoading ? 'Procesando carrito' : 'Abrir carrito'"
         :aria-busy="cartLoading"
         title="Carrito"
+      />
+
+      <Drawer
+        v-if="!storeNotFound && !settingsLoading"
+        v-model:visible="cartOpen"
+        position="right"
+        class="cart-drawer"
+        :modal="true"
+        :dismissable="!cartLoading"
+        :show-close-icon="false"
       >
-        <svg class="cart-fab-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M3 4h2l2.3 10.1a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 1.9-1.4L21 8H6" />
-          <circle cx="10" cy="20" r="1.2" />
-          <circle cx="18" cy="20" r="1.2" />
-        </svg>
-        <span class="cart-fab-badge">{{ totalItems }}</span>
-      </button>
-
-      <div v-if="cartOpen && !storeNotFound && !settingsLoading" class="cart-backdrop" @click="toggleCart"></div>
-
-      <aside v-if="!storeNotFound && !settingsLoading" class="cart-panel" :class="{ open: cartOpen }" @click.stop>
-        <div class="cart-header">
-          <div>
-            <p class="cart-eyebrow">Mi compra</p>
-            <h3>Carrito</h3>
+        <template #header>
+          <div class="cart-header">
+            <div>
+              <p class="cart-eyebrow">Mi compra</p>
+              <h3>Carrito</h3>
+            </div>
+            <Button icon="pi pi-times" text rounded severity="secondary" aria-label="Cerrar carrito" @click="cartOpen = false" />
           </div>
-          <button type="button" class="close-cart" @click="toggleCart">✕</button>
+        </template>
+
+        <Message v-if="cartError" severity="error" :closable="false" class="cart-error">
+          <div class="cart-error-content">
+            <span>{{ cartError }}</span>
+            <Button label="Reintentar" icon="pi pi-refresh" :loading="cartLoading" @click="initializeCart" />
+          </div>
+        </Message>
+
+        <div v-else-if="!cartToken" class="cart-empty-state" role="status">
+          <ProgressSpinner stroke-width="4" />
+          <span>Creando tu carrito...</span>
         </div>
 
-        <div v-if="!cartToken && cartError" class="cart-empty" role="alert">
-          No pudo crearse el carrito, contáctese con el proveedor del servicio
-        </div>
-
-        <div v-else-if="!cartToken" class="cart-empty" role="status">
-          Creando tu carrito...
-        </div>
-
-        <div v-else-if="cartItems.length === 0" class="cart-empty">
+        <Message v-else-if="cartItems.length === 0" severity="info" :closable="false" class="cart-empty-message">
           Tu carrito está vacío.
-        </div>
-
-        <p v-if="cartError && cartToken" class="cart-error" role="alert">{{ cartError }}</p>
+        </Message>
 
         <div v-if="cartToken && !cartError" class="cart-items">
           <article v-for="item in cartItems" :key="item.id" class="cart-item">
@@ -601,25 +751,23 @@ const selectView = (value) => {
                 <strong>{{ formatCartAmount(item.pricePerType * item.quantity) }}</strong>
               </div>
               <div class="cart-item-controls">
-                <button
+                <Button
                   type="button"
+                  :icon="item.quantity <= item.step ? 'pi pi-trash' : 'pi pi-minus'"
+                  text
+                  rounded
                   :disabled="cartLoading"
                   :aria-label="item.quantity <= item.step ? `Eliminar ${item.name} del carrito` : `Disminuir cantidad de ${item.name}`"
                   @click="item.quantity <= item.step ? promptRemoveFromCart(item.id) : updateCart(item.id, -1)"
-                >
-                  <svg v-if="item.quantity <= item.step" class="delete-icon" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M7 3h10l1 2h4v2H2V5h4l1-2Zm-1 6h12l-1 12H7L6 9Z" />
-                  </svg>
-                  <template v-else>−</template>
-                </button>
+                />
                 <span>{{ formatCartQuantity(item.quantity, item.productType) }}</span>
-                <button type="button" :disabled="cartLoading || item.quantity + item.step > getProductLimit(item)" @click="updateCart(item.id, 1)">+</button>
+                <Button type="button" icon="pi pi-plus" text rounded :disabled="cartLoading || item.quantity + item.step > getProductLimit(item)" :aria-label="`Aumentar cantidad de ${item.name}`" @click="updateCart(item.id, 1)" />
               </div>
             </div>
           </article>
         </div>
 
-        <div v-if="cartToken" class="cart-footer">
+        <div v-if="cartToken && !cartError" class="cart-footer">
           <div class="cart-total">
             <span>Subtotal</span>
             <strong>{{ formatCartAmount(subtotal) }}</strong>
@@ -632,29 +780,28 @@ const selectView = (value) => {
             <span>Total</span>
             <strong>{{ formatCartAmount(totalAmount) }}</strong>
           </div>
-          <button
+          <Button
             type="button"
             class="checkout-btn"
             :disabled="cartLoading || cartItems.length === 0"
+            label="Finalizar compra"
+            icon="pi pi-arrow-right"
+            icon-pos="right"
+            :loading="cartLoading"
             :aria-label="cartLoading ? 'Procesando carrito' : 'Finalizar compra'"
             @click="beginCheckout"
-          >
-            <span class="checkout-button-content" :class="{ 'is-loading': cartLoading }" aria-hidden="true">Finalizar compra</span>
-            <span v-if="cartLoading" class="loading-spinner" aria-hidden="true"></span>
-          </button>
+          />
         </div>
-      </aside>
+      </Drawer>
       </template>
     </main>
   </body>
 </template>
 
 <style scoped>
-  body {
-    background-color: var(--background-color);
-  }
-  :global(html) {
-    background: var(--background-color);
+  :global(html),
+  :global(body) {
+    background-color: var(--store-background-color, #f6f5ef);
   }
 
   #app {
@@ -684,42 +831,13 @@ const selectView = (value) => {
     text-align: center;
   }
 
-  .store-status-code {
-    margin: 0;
-    color: var(--primary-color, #315d36);
-    font-size: 0.78rem;
-    font-weight: 800;
-    text-transform: uppercase;
+  .store-status-message {
+    width: min(100%, 38rem);
   }
 
-  .store-status h1 {
-    margin: 0;
-    font-size: clamp(1.8rem, 5vw, 2.6rem);
-  }
-
-  .store-status p:not(.store-status-code) {
+  .store-status-message p {
     max-width: 42ch;
-    margin: 0;
-    color: #59665b;
-    line-height: 1.6;
-  }
-
-  .store-status a,
-  .store-retry-button {
-    display: inline-flex;
-    min-height: 2.8rem;
-    align-items: center;
-    justify-content: center;
-    margin-top: 0.6rem;
-    padding: 0.65rem 1rem;
-    border: 0;
-    border-radius: 6px;
-    background: var(--primary-color, #315d36);
-    color: #fff;
-    font: inherit;
-    font-weight: 700;
-    text-decoration: none;
-    cursor: pointer;
+    margin: 0.7rem 0 1rem;
   }
 
   section {
@@ -755,41 +873,7 @@ const selectView = (value) => {
     gap: 0.8rem;
   }
 
-  .skeleton-block {
-    position: relative;
-    display: block;
-    overflow: hidden;
-    border-radius: 6px;
-    background: #e4e9e5;
-  }
-
-  .skeleton-block::after {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.62), transparent);
-    content: '';
-    transform: translateX(-100%);
-    animation: skeleton-shimmer 1.35s ease-in-out infinite;
-  }
-
-  @keyframes skeleton-shimmer {
-    to { transform: translateX(100%); }
-  }
-
-  .skeleton-logo {
-    width: 100px;
-    height: 100px;
-    border-radius: 50%;
-  }
-
-  .skeleton-store-name {
-    width: min(15rem, 70vw);
-    height: 1.6rem;
-  }
-
-  .skeleton-banner-slogan {
-    width: min(24rem, 75vw);
-    height: 1rem;
+  .banner-skeleton-slogan {
     margin-top: 1rem;
   }
   .logo {
@@ -809,14 +893,8 @@ const selectView = (value) => {
     color: var(--primary-color);
   }
 
-  .logo-fallback svg {
-    width: 3rem;
-    height: 3rem;
-    fill: none;
-    stroke: currentColor;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    stroke-width: 1.8;
+  .logo-fallback i {
+    font-size: 3rem;
   }
 
   .banner-fallback-icon {
@@ -828,13 +906,8 @@ const selectView = (value) => {
     transform: translateY(-50%);
   }
 
-  .banner-fallback-icon svg {
-    width: clamp(6rem, 14vw, 12rem);
-    height: auto;
-    stroke: currentColor;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    stroke-width: 2;
+  .banner-fallback-icon i {
+    font-size: clamp(6rem, 14vw, 12rem);
   }
   #tools {
     display: flex;
@@ -854,21 +927,10 @@ const selectView = (value) => {
     gap: 1rem;
   }
 
-  #tools input {
+  #tools :deep(.p-inputtext) {
     width: min(100%, 420px);
-    padding: 0.9rem 1rem;
-    border-radius: 12px;
-    border: 2px solid var(--secondary-color);
-    background: #fff;
-    font-size: 1rem;
-    outline: none;
+    min-height: 3rem;
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease
-  }
-
-  #tools input:focus {
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.04), 0 8px 20px rgba(0, 0, 0, 0.08);
   }
 
   .view-select {
@@ -878,50 +940,61 @@ const selectView = (value) => {
     padding: 0.45rem 0.6rem;
     font-weight: 700;
     color: var(--primary-color);
+    button {
+      color: var(--primary-color);
+    }
   }
 
   .view-label {
     font-size: 0.9rem;
-    letter-spacing: 0.02em;
+    white-space: nowrap;
   }
 
-  .view-options {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.15rem;
-    border-radius: 10px;
-    background: rgba(0, 0, 0, 0.03);
+  .view-label strong {
+    color: var(--primary-color);
   }
 
-  .view-options button {
+  .sort-select {
     display: inline-flex;
+    min-width: min(100%, 17rem);
     align-items: center;
-    gap: 0.4rem;
-    border: none;
-    background: transparent;
-    color: #4a4a4a;
-    border-radius: 10px;
-    padding: 0.55rem 0.8rem;
-    font: inherit;
+    gap: 0.65rem;
+    color: var(--primary-color);
+    font-size: 0.9rem;
     font-weight: 700;
-    cursor: pointer;
-    transition: all 0.2s ease;
   }
 
-  .view-options button:hover {
-    background: rgba(0, 0, 0, 0.04);
+  .sort-select :deep(.p-select) {
+    min-width: 12rem;
+    border-color: color-mix(in srgb, var(--primary-color) 48%, #fff);
+    background: #fff;
+    color: var(--primary-color);
   }
 
-  .view-options button.active {
-    background: var(--primary-color);
-    color: white;
-    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
+  .sort-select :deep(.p-select-label),
+  .sort-select :deep(.p-select-dropdown) {
+    color: var(--primary-color);
   }
 
-  .view-icon {
-    font-size: 1rem;
-    line-height: 1;
+  .sort-select :deep(.p-select:not(.p-disabled).p-focus) {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--primary-color) 24%, transparent);
+  }
+
+  .sort-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    white-space: nowrap;
+  }
+
+  .view-select :deep(.p-selectbutton) {
+    display: inline-flex;
+    flex-wrap: nowrap;
+  }
+
+  .view-select :deep(.p-button) {
+    gap: 0.45rem;
   }
 
   .categories {
@@ -936,44 +1009,15 @@ const selectView = (value) => {
     color: #222;
   }
 
-  .categories ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
+  .category-options {
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
     gap: 0.7rem;
   }
 
-  .categories ul.category-skeletons li {
-    width: 6.5rem;
-    height: 2.5rem;
-    padding: 0;
-    list-style: none;
-  }
-
-  .categories li {
-    cursor: pointer;
-    padding: 0.6rem 1rem;
-    border-radius: 999px;
-    background-color: var(--secondary-color);
-    color: #222;
-    font-weight: 600;
-    transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, filter 0.2s ease;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
-  }
-
-  .categories li:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.14);
-    filter: brightness(1.02);
-  }
-
-  .categories li.selected {
-    background-color: var(--primary-color);
-    color: white;
-    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+  .category-options :deep(.p-button) {
+    min-height: 2.5rem;
   }
 
   #products {
@@ -1004,9 +1048,24 @@ const selectView = (value) => {
     min-width: 0;
     flex-direction: column;
     overflow: hidden;
-    border: 1px solid rgba(0, 0, 0, 0.06);
     border-radius: 20px;
-    background: rgba(255, 255, 255, 0.9);
+  }
+
+  .skeleton-product-card :deep(.p-card-body) {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    padding: 0;
+  }
+
+  .skeleton-product-card :deep(.p-card-header),
+  .skeleton-product-card :deep(.p-card-content) {
+    padding: 0;
+  }
+
+  .skeleton-product-card :deep(.p-card-content) {
+    display: flex;
+    flex: 1;
   }
 
   .skeleton-product-image {
@@ -1033,55 +1092,22 @@ const selectView = (value) => {
     gap: 0.75rem;
   }
 
-  .skeleton-category {
-    width: 5rem;
-    height: 1.7rem;
-    border-radius: 999px;
-  }
-
-  .skeleton-price {
-    width: 5.5rem;
-    height: 0.8rem;
-  }
-
-  .skeleton-product-name {
-    width: 72%;
-    height: 1.35rem;
-  }
-
   .skeleton-description {
     display: grid;
     gap: 0.45rem;
     min-height: 48px;
   }
 
-  .skeleton-description .skeleton-block {
-    width: 100%;
-    height: 0.75rem;
-  }
-
-  .skeleton-description .skeleton-block:last-child {
-    width: 68%;
-  }
-
-  .skeleton-quantity {
-    height: 3rem;
-    border-radius: 12px;
-  }
-
-  .skeleton-subtotal {
-    width: 5.5rem;
-    height: 1.65rem;
-  }
-
-  .skeleton-add-button {
-    width: 6.5rem;
-    height: 2.8rem;
-    border-radius: 12px;
-  }
-
   .skeleton-product-card.is-list {
     flex-direction: row;
+  }
+
+  .skeleton-product-card.is-list :deep(.p-card-body) {
+    flex-direction: row;
+  }
+
+  .skeleton-product-card.is-list :deep(.p-card-header) {
+    flex: 0 0 170px;
   }
 
   .skeleton-product-card.is-list .skeleton-product-image {
@@ -1104,17 +1130,6 @@ const selectView = (value) => {
     font-weight: 600;
   }
 
-  .retry-products {
-    border: 0;
-    border-radius: 8px;
-    padding: 0.65rem 0.9rem;
-    background: var(--primary-color);
-    color: white;
-    font: inherit;
-    font-weight: 700;
-    cursor: pointer;
-  }
-
   .load-more-region {
     position: relative;
     display: grid;
@@ -1124,24 +1139,8 @@ const selectView = (value) => {
     padding: 0.5rem;
   }
 
-  .load-more-button {
-    min-height: 2.75rem;
-    padding: 0.65rem 1rem;
-    border: 1px solid var(--primary-color);
-    border-radius: 8px;
-    background: white;
-    color: var(--primary-color);
-    font: inherit;
-    font-weight: 700;
-    cursor: pointer;
-  }
-
-  .load-more-status,
-  .load-more-error {
-    margin: 0;
-    color: #4b5563;
-    font-size: 0.9rem;
-    font-weight: 600;
+  .load-more-region :deep(.p-button) {
+    min-width: 13rem;
   }
 
   .load-more-sentinel {
@@ -1157,93 +1156,57 @@ const selectView = (value) => {
     right: calc(max(var(--content-gutter), (100vw - var(--content-max-width)) / 2) + 0.5rem);
     top: 1.5rem;
     z-index: 30;
-    display: grid;
-    align-items: center;
-    justify-items: center;
-    width: 4.25rem;
-    height: 4.25rem;
-    padding: 0;
-    border: none;
-    border-radius: 1.35rem;
-    background: var(--secondary-color);
-    color: #111;
-    box-shadow: 0 18px 30px rgba(0, 0, 0, 0.18);
-    cursor: pointer;
-    transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
-  }
-
-  .cart-fab:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 22px 34px rgba(0, 0, 0, 0.2);
-  }
-
-  .cart-fab:disabled {
-    opacity: 0.7;
-    cursor: wait;
-  }
-
-  .cart-fab-badge {
-    position: absolute;
-    top: -0.4rem;
-    right: -0.4rem;
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
-    min-width: 1.65rem;
-    height: 1.65rem;
-    padding: 0 0.4rem;
+    width: 4.25rem;
+    height: 4.25rem;
+    border-radius: 1rem;
+    box-shadow: 0 18px 30px rgba(0, 0, 0, 0.18);
+  }
+
+  .cart-fab :deep(.p-button-icon) {
+    margin: 0;
+    font-size: 1.8rem;
+  }
+
+  .cart-fab :deep(.p-badge) {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    min-width: 1.35rem;
+    height: 1.35rem;
+    padding: 0 0.25rem;
     border-radius: 999px;
-    background: var(--primary-color);
-    color: #fff;
-    font-size: 1rem;
-    font-weight: 700;
-    line-height: 1;
+    font-size: 0.68rem;
   }
 
-  .cart-fab-icon {
-    width: 2.25rem;
-    height: 2.25rem;
-    stroke: currentColor;
-    stroke-width: 1.8;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  .cart-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 25;
-    background: rgba(15, 23, 42, 0.4);
-    backdrop-filter: blur(2px);
-  }
-
-  .cart-panel {
-    position: fixed;
-    top: 0;
-    right: 0;
-    z-index: 40;
+  .cart-drawer :deep(.p-drawer) {
     width: min(90vw, 420px);
-    height: 100vh;
+    max-width: 100vw;
+  }
+
+  .cart-drawer :deep(.p-drawer-content) {
     display: flex;
     flex-direction: column;
-    background: rgba(255, 255, 255, 0.98);
-    box-shadow: -20px 0 45px rgba(15, 23, 42, 0.18);
-    transform: translateX(110%);
-    transition: transform 0.28s ease;
-    padding: 1.1rem 1rem 1rem;
+    min-height: 0;
   }
 
-  .cart-panel.open {
-    transform: translateX(0);
+  .cart-drawer :deep(.p-drawer-header) {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--p-content-border-color);
   }
 
   .cart-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    width: 100%;
+    justify-content: flex-end;
     gap: 0.75rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  }
+
+  .cart-header > div {
+    flex: 1;
   }
 
   .cart-eyebrow {
@@ -1260,23 +1223,32 @@ const selectView = (value) => {
     color: #111827;
   }
 
-  .close-cart {
-    width: 2.1rem;
-    height: 2.1rem;
-    border: none;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.05);
-    color: #374151;
-    font-size: 1.1rem;
-    cursor: pointer;
-  }
-
-  .cart-empty {
-    display: grid;
-    place-items: center;
+  .cart-empty-state {
+    display: flex;
     flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
     color: #4b5563;
     font-weight: 600;
+  }
+
+  .cart-empty-message {
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .cart-error {
+    width: 100%;
+  }
+
+  .cart-error-content {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
   }
 
   .cart-items {
@@ -1332,80 +1304,9 @@ const selectView = (value) => {
     border: 1px solid rgba(0, 0, 0, 0.06);
   }
 
-  .cart-item-controls button {
+  .cart-item-controls :deep(.p-button) {
     width: 1.8rem;
     height: 1.8rem;
-    border: none;
-    border-radius: 50%;
-    background: var(--primary-color);
-    color: white;
-    font-size: 1.1rem;
-    cursor: pointer;
-  }
-
-  .delete-icon {
-    width: 1rem;
-    height: 1rem;
-    fill: currentColor;
-    vertical-align: middle;
-  }
-
-  .confirm-modal {
-    position: fixed;
-    inset: 0;
-    z-index: 60;
-    display: grid;
-    place-items: center;
-    background: rgba(15, 23, 42, 0.45);
-    padding: 1rem;
-  }
-
-  .confirm-dialog {
-    width: min(92vw, 360px);
-    background: white;
-    border-radius: 18px;
-    padding: 1.2rem 1rem 1rem;
-    box-shadow: 0 26px 60px rgba(15, 23, 42, 0.22);
-  }
-
-  .confirm-dialog h3 {
-    margin: 0 0 0.6rem;
-  }
-
-  .confirm-dialog p {
-    margin: 0 0 1rem;
-    color: #374151;
-    line-height: 1.5;
-  }
-
-  .confirm-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.75rem;
-  }
-
-  .cancel-btn,
-  .confirm-btn {
-    border: none;
-    border-radius: 10px;
-    padding: 0.7rem 1rem;
-    font-weight: 700;
-    cursor: pointer;
-  }
-
-  .cancel-btn {
-    background: rgba(15, 23, 42, 0.06);
-    color: #111827;
-  }
-
-  .confirm-btn {
-    background: #dc2626;
-    color: white;
-  }
-
-  .cart-item-controls button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
   }
 
   .cart-footer {
@@ -1419,52 +1320,24 @@ const selectView = (value) => {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 0.8rem;
-    font-size: 1.1rem;
+    font-size: 0.95rem;
     color: #111827;
   }
 
-  .checkout-btn {
-    position: relative;
+  .cart-footer :deep(.checkout-btn) {
     width: 100%;
-    border: none;
-    border-radius: 12px;
-    background: var(--primary-color);
-    color: white;
-    padding: 0.9rem 1rem;
-    font-weight: 700;
-    cursor: pointer;
+    justify-content: center;
     box-shadow: 0 12px 26px rgba(0, 0, 0, 0.12);
   }
 
-  .checkout-button-content.is-loading {
-    visibility: hidden;
-  }
-
-  .loading-spinner {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 1em;
-    height: 1em;
-    border: 2px solid currentColor;
-    border-right-color: transparent;
-    border-radius: 50%;
-    animation: loading-spin 0.75s linear infinite;
-  }
-
-  @keyframes loading-spin {
-    to { transform: translate(-50%, -50%) rotate(360deg); }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .loading-spinner {
-      animation-duration: 1.5s;
+  @media (max-width: 500px) {
+    .skeleton-product-card.is-list :deep(.p-card-header) {
+      display: none;
     }
-  }
 
-  .checkout-btn:disabled {
-    opacity: 0.6;
-    cursor: wait;
+    .skeleton-product-card.is-list :deep(.p-card-body) {
+      flex-direction: column;
+    }
   }
 
   @media (max-width: 768px) {
@@ -1475,9 +1348,4 @@ const selectView = (value) => {
     }
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .skeleton-block::after {
-      animation-duration: 2.8s;
-    }
-  }
 </style>

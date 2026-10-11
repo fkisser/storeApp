@@ -19,8 +19,19 @@
       <div class="hero-content">
         <h1 id="welcome-title">Descubrí lo que<br />hace única a tu ciudad</h1>
         <div class="hero-actions">
-          <button type="button" class="button button-light">Tiendas que trabajan con nosotros</button>
-          <button type="button" class="button button-outline">Registrarse</button>
+          <Button
+            type="button"
+            label="Tiendas que trabajan con nosotros"
+            severity="secondary"
+            class="button-light"
+          />
+          <Button
+            type="button"
+            label="Registrarse"
+            severity="secondary"
+            outlined
+            class="button-outline"
+          />
         </div>
       </div>
     </section>
@@ -129,36 +140,30 @@
   margin-top: 2rem;
 }
 
-.button {
-  display: inline-flex;
+.hero-actions :deep(.p-button) {
   min-height: 3.1rem;
-  align-items: center;
-  justify-content: center;
-  padding: 0.8rem 1.15rem;
-  border: 1px solid transparent;
   border-radius: 3px;
-  font: inherit;
   font-size: 0.86rem;
   font-weight: 700;
-  cursor: pointer;
 }
 
-.button-light {
+.hero-actions :deep(.button-light) {
   background: #f6f5ef;
+  border-color: #f6f5ef;
   color: #26372d;
 }
 
-.button-outline {
+.hero-actions :deep(.button-outline) {
   border-color: rgba(255, 255, 255, 0.72);
   background: transparent;
   color: white;
 }
 
-.button:hover {
+.hero-actions :deep(.p-button:hover) {
   filter: brightness(0.92);
 }
 
-.button:focus-visible,
+.hero-actions :deep(.p-button:focus-visible),
 .brand:focus-visible {
   outline: 3px solid #efb879;
   outline-offset: 4px;
@@ -209,7 +214,7 @@
     flex-direction: column;
   }
 
-  .button {
+  .hero-actions :deep(.p-button) {
     width: 100%;
   }
 

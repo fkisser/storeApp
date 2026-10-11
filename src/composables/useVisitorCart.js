@@ -5,7 +5,7 @@ import { formatCurrency } from '../utils/formatCurrency.js'
 
 const CART_STORAGE_KEY = `vitrinapp-cart-${encodeURIComponent(STORE_SLUG)}`
 
-export const useVisitorCart = ({ products, onStoreUnavailable }) => {
+export const useVisitorCart = ({ products }) => {
   const cartToken = ref('')
   const cartRevision = ref(null)
   const cart = ref([])
@@ -212,6 +212,21 @@ export const useVisitorCart = ({ products, onStoreUnavailable }) => {
     applyCartSnapshot(currentCart)
   }
 
+  const clearCartState = () => {
+    cart.value = []
+    cartToken.value = ''
+    cartRevision.value = null
+    Object.assign(cartTotals, {
+      subtotalAmount: null,
+      discountAmount: null,
+      totalAmount: null,
+      currency: 'ARS',
+      discounts: []
+    })
+    productQty.value = {}
+    persistCart()
+  }
+
   const initializeCart = async () => {
     cartLoading.value = true
     cartError.value = ''
@@ -222,8 +237,11 @@ export const useVisitorCart = ({ products, onStoreUnavailable }) => {
         await ensureCart()
       }
     } catch (error) {
-      if (error.status >= 500 || error.status === 404) {
-        onStoreUnavailable(error)
+      if (error.status === 404 && cartToken.value) {
+        clearCartState()
+        cartError.value = 'El carrito ya no existe o venció. Intenta crear uno nuevo.'
+      } else if (!cartToken.value) {
+        cartError.value = 'No pudo crearse el carrito, contáctese con el proveedor del servicio.'
       } else {
         cartError.value = error.message || 'No se pudo crear o recuperar el carrito.'
       }
@@ -361,19 +379,7 @@ export const useVisitorCart = ({ products, onStoreUnavailable }) => {
 
   const clearCompletedCart = (order) => {
     if (!order || order.cartToken !== cartToken.value) return
-
-    cart.value = []
-    cartToken.value = ''
-    cartRevision.value = null
-    Object.assign(cartTotals, {
-      subtotalAmount: null,
-      discountAmount: null,
-      totalAmount: null,
-      currency: 'ARS',
-      discounts: []
-    })
-    productQty.value = {}
-    persistCart()
+    clearCartState()
   }
 
   onBeforeUnmount(() => {
