@@ -6,6 +6,7 @@ import WelcomePage from './components/WelcomePage.vue'
 import storeInfo from './data/store-info.json'
 import { requestStoreApi } from './api/store.js'
 import { IS_HOME, STORE_SLUG } from './config/store.js'
+import { useVisitorCart } from './composables/useVisitorCart.js'
 const isHome = IS_HOME
 const storeName = ref('')
 const storeNotFound = ref(false)
@@ -55,17 +56,6 @@ const loadBannerImage = (configuredImage) => {
   }
   image.src = configuredImage
 }
-/*
-import productData from './data/products.json'
-const products = reactive(productData.map((product) => {
-  const step = product.productType === 'weight' ? 0.25 : 1
-  const stockLimit = product.stock ?? step
-  const orderLimit = product.maxQuantityPerOrder ?? step
-  const initialQuantity = product.isSoldOut ? 0 : Math.min(step, stockLimit, orderLimit)
-
-  return { ...product, step, quantity: initialQuantity }
-}))
-*/
 const products = reactive([])
 const categoryData = ref([])
 const productsLoading = ref(true)
@@ -78,10 +68,48 @@ const loadMoreSentinel = ref(null)
 const PRODUCTS_PAGE_SIZE = 20
 let productsObserver = null
 let storeRetryTimer = null
-const CART_STORAGE_KEY = `vitrinapp-cart-${encodeURIComponent(STORE_SLUG)}`
-const cartError = ref('')
-const cartMutations = new Map()
-let cartSyncPromise = null
+
+const handleStoreUnavailable = (error) => {
+  if (error.status === 404) {
+    storeNotFound.value = true
+    scheduleStoreRetry()
+  } else if (error.status >= 500) {
+    storeError.value = 'Algo salió mal. Inténtalo de nuevo más tarde.'
+  }
+}
+
+const {
+  addToCart,
+  cart,
+  cartError,
+  cartItems,
+  cartLoading,
+  cartRevision,
+  cartToken,
+  cartTotals,
+  clearCompletedCart,
+  discountAmount,
+  flushCartRequests,
+  formatCartAmount,
+  formatCartQuantity,
+  formatQuantityLabel,
+  getCartQuantity,
+  getProductLimit,
+  getProductQuantity,
+  hasSavedCartItems,
+  initializeCart,
+  isProductLimitReached,
+  isUnavailable,
+  productQty,
+  refreshCurrentCart,
+  removeItem: removeCartItem,
+  restoreCart,
+  subtotal,
+  totalAmount,
+  totalItems,
+  updateCart,
+  updateProductQuantity: updateProductQty
+} = useVisitorCart({ products, onStoreUnavailable: handleStoreUnavailable })
 
 watch(loadMoreSentinel, (sentinel) => {
   if (sentinel) productsObserver?.observe(sentinel)
@@ -120,45 +148,6 @@ const normalizeApiProduct = (product) => {
   }
 }
 
-const restoreSavedCart = () => {
-  if (typeof window === 'undefined') return { token: '', revision: null, items: [] }
-
-  try {
-    const savedCart = JSON.parse(window.localStorage.getItem(CART_STORAGE_KEY) ?? 'null')
-    if (!savedCart || typeof savedCart.token !== 'string' || !savedCart.token || !Array.isArray(savedCart.items)) {
-      return { token: '', revision: null, items: [] }
-    }
-
-    const items = savedCart.items.flatMap((entry) => {
-      const product = products.find((item) => item.id === entry.id)
-      const quantity = Number(entry.quantity)
-      if (!product || !Number.isFinite(quantity) || quantity <= 0) return []
-
-      const limit = Math.min(
-        product.stock ?? Number.POSITIVE_INFINITY,
-        product.maxQuantityPerOrder ?? Number.POSITIVE_INFINITY
-      )
-      if (limit < product.step) return []
-
-      return [{ id: product.id, quantity: Math.min(limit, Math.max(product.step, quantity)) }]
-    })
-
-    return { token: savedCart.token, revision: savedCart.revision ?? null, items }
-  } catch {
-    return { token: '', revision: null, items: [] }
-  }
-}
-
-const hasSavedCartItems = () => {
-  if (typeof window === 'undefined') return false
-
-  try {
-    return JSON.parse(window.localStorage.getItem(CART_STORAGE_KEY) ?? 'null')?.items?.length > 0
-  } catch {
-    return false
-  }
-}
-
 const scheduleStoreRetry = () => {
   if (storeRetryTimer) clearTimeout(storeRetryTimer)
   storeRetryTimer = setTimeout(() => {
@@ -184,15 +173,12 @@ const loadProducts = async ({ append = false } = {}) => {
   }
 
   try {
-    const fetchJson = async (url) => {
-      return requestStoreApi(url)
-    }
     const pageOffset = append ? productsOffset.value : 0
     const pageLimit = !append && hasSavedCartItems() ? 100 : PRODUCTS_PAGE_SIZE
     const [settingsResult, productsResult, categoriesResult] = await Promise.allSettled([
-      append ? Promise.resolve(null) : fetchJson('/settings'),
-      fetchJson(`/products?limit=${pageLimit}&offset=${pageOffset}`),
-      append ? Promise.resolve(null) : fetchJson('/categories')
+      append ? Promise.resolve(null) : requestStoreApi('/settings'),
+      requestStoreApi(`/products?limit=${pageLimit}&offset=${pageOffset}`),
+      append ? Promise.resolve(null) : requestStoreApi('/categories')
     ])
 
     if (!append) {
@@ -223,13 +209,7 @@ const loadProducts = async ({ append = false } = {}) => {
     }
 
     if (!append) {
-      const settings = settingsResult.status === 'fulfilled'
-        ? settingsResult.value
-        : {
-            name: storeInfo.ecommerceName,
-            description: storeInfo.bannerSlogan,
-            theme: {}
-          }
+      const settings = settingsResult.value
       const theme = settings.theme ?? {}
       storeName.value = settings.name ?? storeInfo.ecommerceName
       bannerSlogan.value = settings.description ?? storeInfo.bannerSlogan
@@ -256,10 +236,7 @@ const loadProducts = async ({ append = false } = {}) => {
         : Array.isArray(categoryPayload?.categories)
           ? categoryPayload.categories
           : []
-      const savedCart = restoreSavedCart()
-      cartToken.value = savedCart.token
-      cartRevision.value = savedCart.revision
-      cart.value = savedCart.items
+      restoreCart()
     }
 
     productsOffset.value = Number(payload.offset ?? pageOffset) + loadedProducts.length
@@ -293,23 +270,10 @@ const categories = computed(() => {
 const search = ref('')
 const selectedCategory = ref('Todas')
 const layout = ref('cards')
-const cartToken = ref('')
-const cartRevision = ref(null)
-const cart = ref([])
-const cartTotals = reactive({
-  subtotalAmount: null,
-  discountAmount: null,
-  totalAmount: null,
-  currency: 'ARS',
-  discounts: []
-})
 const cartOpen = ref(false)
 const checkoutOpen = ref(false)
 const viewMenuOpen = ref(false)
-const cartLoading = ref(false)
-const productQty = ref({})
 const pendingRemoval = ref(null)
-let cartDebounceTimer = null
 const viewOptions = [
   { value: 'cards', icon: '▦', label: 'Tarjetas' },
   { value: 'list', icon: '☰', label: 'Lista' }
@@ -334,252 +298,9 @@ const filteredProducts = computed(() => {
   })
 })
 
-const cartItems = computed(() =>
-  cart.value
-    .map((entry) => {
-      const product = products.find((item) => item.id === entry.id)
-      return product ? { ...product, quantity: entry.quantity } : null
-    })
-    .filter(Boolean)
-)
-
-const persistCart = () => {
-  if (typeof window === 'undefined') return
-
-  try {
-    if (!cartToken.value) {
-      window.localStorage.removeItem(CART_STORAGE_KEY)
-      return
-    }
-
-    window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({
-      token: cartToken.value,
-      revision: cartRevision.value,
-      items: cart.value.map(({ id, quantity }) => ({ id, quantity }))
-    }))
-  } catch {
-    // Storage can be unavailable in private browsing contexts.
-  }
-}
-
-watch(cart, persistCart, { deep: true })
-watch([cartToken, cartRevision], persistCart)
-
-const totalItems = computed(() =>
-  cartItems.value.reduce((sum, item) =>
-    sum + (item.productType === 'weight' ? 1 : item.quantity), 0
-  , 0)
-)
-
-const localSubtotal = computed(() =>
-  cartItems.value.reduce((sum, item) => sum + item.pricePerType * item.quantity, 0)
-)
-
-const subtotal = computed(() => cartTotals.subtotalAmount ?? localSubtotal.value)
-const discountAmount = computed(() => cartTotals.discountAmount ?? 0)
-const totalAmount = computed(() => cartTotals.totalAmount ?? Math.max(0, subtotal.value - discountAmount.value))
-
-const formatCartAmount = (amount) => new Intl.NumberFormat('es-AR', {
-  style: 'currency',
-  currency: cartTotals.currency || 'ARS'
-}).format(Number(amount) || 0)
-
-const getProductLimit = (product) => Math.min(
-  product.stock ?? Number.POSITIVE_INFINITY,
-  product.maxQuantityPerOrder ?? Number.POSITIVE_INFINITY
-)
-
-const isUnavailable = (product) => product.isSoldOut || getProductLimit(product) <= 0
-
-const isProductLimitReached = (product) => {
-  return getProductQuantity(product) + product.step > getProductLimit(product)
-}
-
-const getCartQuantity = (productId) => {
-  const cartEntry = cart.value.find((item) => item.id === productId)
-  return cartEntry?.quantity ?? 0
-}
-
-const getProductQuantity = (product) => {
-  const value = productQty.value[product.id]
-  if (value === undefined) {
-    const cartQuantity = getCartQuantity(product.id)
-    const nextValue = cartQuantity > 0 ? cartQuantity : product.quantity
-    productQty.value[product.id] = nextValue
-    return nextValue
-  }
-
-  return value
-}
-
-const formatQuantityLabel = (product) => {
-  const quantity = getProductQuantity(product)
-  if (product.productType === 'weight') {
-    return quantity >= 1
-      ? `${Number(quantity.toFixed(2))} kg`
-      : `${Math.round(quantity * 1000)} g`
-  }
-
-  return `${quantity.toFixed(0)} u`
-}
-
-const formatCartQuantity = (quantity, productType) => {
-  if (productType === 'weight') {
-    return quantity >= 1
-      ? `${Number(quantity.toFixed(2))} kg`
-      : `${Math.round(quantity * 1000)} g`
-  }
-
-  return `${quantity.toFixed(0)} u`
-}
-
-const cartData = (payload) => payload?.cart ?? payload?.data?.cart ?? payload?.data ?? payload ?? {}
-
-const readCartToken = (payload) => {
-  const data = cartData(payload)
-  return payload?.accessToken ?? payload?.cartToken ?? payload?.token ??
-    payload?.data?.accessToken ?? data.accessToken ?? data.cartToken ?? data.token ?? ''
-}
-
-const updateCartRevision = (payload) => {
-  const data = cartData(payload)
-  const revision = payload?.revision ?? payload?.cartRevision ?? data.revision ?? data.cartRevision
-  if (revision !== undefined && revision !== null) cartRevision.value = revision
-}
-
-const updateCartTotals = (payload) => {
-  const data = cartData(payload)
-  for (const key of ['subtotalAmount', 'discountAmount', 'totalAmount']) {
-    const amount = Number(data[key])
-    if (data[key] !== undefined && data[key] !== null && Number.isFinite(amount)) {
-      cartTotals[key] = amount
-    }
-  }
-  if (data.currency) cartTotals.currency = data.currency
-  if (Array.isArray(data.discounts)) cartTotals.discounts = data.discounts
-}
-
-const applyCartSnapshot = (payload) => {
-  const data = cartData(payload)
-  const token = readCartToken(payload)
-  if (token) cartToken.value = token
-  updateCartRevision(payload)
-  updateCartTotals(payload)
-
-  if (!Array.isArray(data.items)) return
-  cart.value = data.items.flatMap((entry) => {
-    const id = entry.productId ?? entry.product?.id ?? entry.id
-    const quantity = Number(entry.quantity)
-    return id != null && Number.isFinite(quantity) && quantity > 0
-      ? [{ id, quantity }]
-      : []
-  })
-  for (const item of cart.value) productQty.value[item.id] = item.quantity
-}
-
-const ensureCart = async () => {
-  if (cartToken.value) return
-  const createdCart = await requestStoreApi('/carts', { method: 'POST' })
-  cartToken.value = readCartToken(createdCart)
-  updateCartRevision(createdCart)
-  updateCartTotals(createdCart)
-  if (!cartToken.value) throw new Error('La API no devolvió el token del carrito.')
-}
-
-const refreshCurrentCart = async () => {
-  const currentCart = await requestStoreApi('/carts/current', { cartToken: cartToken.value })
-  applyCartSnapshot(currentCart)
-}
-
-const initializeCart = async () => {
-  if (storeNotFound.value || storeError.value || cartLoading.value) return
-
-  cartLoading.value = true
-  cartError.value = ''
-  try {
-    if (cartToken.value) {
-      await refreshCurrentCart()
-    } else {
-      await ensureCart()
-    }
-  } catch (error) {
-    if (error.status === 404) {
-      storeNotFound.value = true
-      scheduleStoreRetry()
-    } else if (error.status >= 500) {
-      storeError.value = 'Algo salió mal. Inténtalo de nuevo más tarde.'
-    } else {
-      cartError.value = error.message || 'No se pudo crear o recuperar el carrito.'
-    }
-  } finally {
-    cartLoading.value = false
-    persistCart()
-  }
-}
-
 const retryStore = async () => {
   await loadProducts()
   if (!storeNotFound.value && !storeError.value) await initializeCart()
-}
-
-const sendCartMutation = async (productId, quantity) => {
-  if ((quantity === null || quantity <= 0) && !cartToken.value) return
-  await ensureCart()
-  if (cartRevision.value === null) await refreshCurrentCart()
-  if (cartRevision.value === null) throw new Error('La API no devolvió la revisión del carrito.')
-
-  const removing = quantity === null || quantity <= 0
-  const response = await requestStoreApi(`/carts/current/items/${encodeURIComponent(productId)}`, {
-    method: removing ? 'DELETE' : 'PUT',
-    cartToken: cartToken.value,
-    body: removing
-      ? { revision: cartRevision.value }
-      : { quantity: Number(quantity).toFixed(3), revision: cartRevision.value }
-  })
-  const previousRevision = cartRevision.value
-  if (response) applyCartSnapshot(response)
-  if (response == null || cartRevision.value === previousRevision) await refreshCurrentCart()
-}
-
-const flushCartRequests = () => {
-  if (cartDebounceTimer) {
-    clearTimeout(cartDebounceTimer)
-    cartDebounceTimer = null
-  }
-  if (cartSyncPromise) return cartSyncPromise
-  if (cartMutations.size === 0) return Promise.resolve()
-
-  cartLoading.value = true
-  cartError.value = ''
-  cartSyncPromise = (async () => {
-    try {
-      while (cartMutations.size > 0) {
-        const [productId, quantity] = cartMutations.entries().next().value
-        cartMutations.delete(productId)
-        await sendCartMutation(productId, quantity)
-      }
-    } catch (error) {
-      cartError.value = error.message || 'No se pudo actualizar el carrito.'
-      if (cartToken.value) {
-        try {
-          await refreshCurrentCart()
-        } catch {
-          // Keep the last locally saved cart visible when recovery is unavailable.
-        }
-      }
-    } finally {
-      cartLoading.value = false
-      cartSyncPromise = null
-      persistCart()
-    }
-  })()
-  return cartSyncPromise
-}
-
-const queueCartRequest = (productId, quantity) => {
-  cartMutations.set(productId, quantity)
-  if (cartDebounceTimer) clearTimeout(cartDebounceTimer)
-  cartDebounceTimer = setTimeout(() => void flushCartRequests(), 350)
 }
 
 onMounted(async () => {
@@ -605,73 +326,9 @@ onBeforeUnmount(() => {
 
 const loadNextProducts = () => loadProducts({ append: true })
 
-const updateProductQty = (product, delta) => {
-  if (isUnavailable(product) || cartLoading.value) return
-
-  const current = getProductQuantity(product)
-  const limit = getProductLimit(product)
-  const next = Math.min(limit, Math.max(product.step, Number((current + delta).toFixed(2))))
-  productQty.value[product.id] = next
-
-  const existing = cart.value.find((item) => item.id === product.id)
-  if (existing) {
-    existing.quantity = next
-    queueCartRequest(product.id, next)
-  }
-}
-
-const addToCart = (product) => {
-  if (isUnavailable(product) || cartLoading.value) return
-
-  const quantity = getProductQuantity(product)
-  const existing = cart.value.find((item) => item.id === product.id)
-  const nextQuantity = Math.min(getProductLimit(product), (existing?.quantity ?? 0) + quantity)
-  if (nextQuantity <= (existing?.quantity ?? 0)) return
-
-  if (existing) {
-    existing.quantity = nextQuantity
-    productQty.value[product.id] = nextQuantity
-    queueCartRequest(product.id, nextQuantity)
-    return
-  }
-
-  cart.value.push({ id: product.id, quantity: nextQuantity })
-  productQty.value[product.id] = nextQuantity
-  queueCartRequest(product.id, nextQuantity)
-}
-
-const updateCart = (productId, delta) => {
-  if (cartLoading.value) return
-
-  const item = cart.value.find((entry) => entry.id === productId)
-  const product = products.find((entry) => entry.id === productId)
-  if (!item || !product) return
-
-  const nextQuantity = Number((item.quantity + product.step * delta).toFixed(2))
-  if (nextQuantity === item.quantity) return
-
-  if (nextQuantity <= 0) {
-    cart.value = cart.value.filter((entry) => entry.id !== productId)
-    productQty.value[productId] = product.quantity
-    queueCartRequest(productId, null)
-    return
-  }
-
-  item.quantity = Math.min(getProductLimit(product), nextQuantity)
-  productQty.value[productId] = item.quantity
-  queueCartRequest(productId, item.quantity)
-}
-
 const removeFromCart = (productId) => {
-  if (cartLoading.value) return
-
-  const product = products.find((entry) => entry.id === productId)
-  if (!product) return
-
-  cart.value = cart.value.filter((entry) => entry.id !== productId)
-  productQty.value[productId] = product.step
+  removeCartItem(productId)
   pendingRemoval.value = null
-  queueCartRequest(productId, null)
 }
 
 const promptRemoveFromCart = (productId) => {
@@ -708,23 +365,6 @@ const beginCheckout = async () => {
 
 const returnToStore = () => {
   checkoutOpen.value = false
-}
-
-const clearCompletedCart = (order) => {
-  if (!order || order.cartToken !== cartToken.value) return
-
-  cart.value = []
-  cartToken.value = ''
-  cartRevision.value = null
-  Object.assign(cartTotals, {
-    subtotalAmount: null,
-    discountAmount: null,
-    totalAmount: null,
-    currency: 'ARS',
-    discounts: []
-  })
-  productQty.value = {}
-  persistCart()
 }
 
 const filterByCategory = (category) => {

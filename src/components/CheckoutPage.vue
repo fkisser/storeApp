@@ -1,6 +1,7 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { requestStoreApi } from '../api/store.js'
+import { formatCurrency } from '../utils/formatCurrency.js'
 
 const props = defineProps({
   items: { type: Array, required: true },
@@ -44,10 +45,7 @@ const formatQuantity = (item) => {
   return `${item.quantity.toFixed(0)} u`
 }
 
-const formatMoney = (amount) => new Intl.NumberFormat('es-AR', {
-  style: 'currency',
-  currency: props.currency || 'ARS'
-}).format(Number(amount) || 0)
+const formatMoney = (amount) => formatCurrency(amount, props.currency || 'ARS')
 
 const confirmOrder = async () => {
   if (sending.value || props.items.length === 0 || !props.cartToken) return
