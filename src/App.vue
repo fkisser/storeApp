@@ -152,7 +152,6 @@ const productsHasMore = ref(true)
 const loadMoreSentinel = ref(null)
 const PRODUCTS_PAGE_SIZE = 20
 let productsObserver = null
-let storeRetryTimer = null
 
 const {
   addToCart,
@@ -224,14 +223,6 @@ const normalizeApiProduct = (product) => {
   }
 }
 
-const scheduleStoreRetry = () => {
-  if (storeRetryTimer) clearTimeout(storeRetryTimer)
-  storeRetryTimer = setTimeout(() => {
-    storeRetryTimer = null
-    void retryStore()
-  }, 5000)
-}
-
 const loadProducts = async ({ append = false } = {}) => {
   if (append) {
     if (productsLoadingMore.value || !productsHasMore.value) return
@@ -265,7 +256,6 @@ const loadProducts = async ({ append = false } = {}) => {
 
       if (notFound) {
         storeNotFound.value = true
-        scheduleStoreRetry()
         return
       }
 
@@ -273,15 +263,11 @@ const loadProducts = async ({ append = false } = {}) => {
         storeError.value = failures.some((error) => error?.status === 500)
           ? 'Algo salió mal. Inténtalo de nuevo más tarde.'
           : 'No pudimos cargar la tienda. Inténtalo de nuevo más tarde.'
-        if (storeRetryTimer) clearTimeout(storeRetryTimer)
-        storeRetryTimer = null
         return
       }
 
       storeNotFound.value = false
       storeError.value = ''
-      if (storeRetryTimer) clearTimeout(storeRetryTimer)
-      storeRetryTimer = null
     }
 
     if (!append) {
@@ -446,7 +432,6 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   productsObserver?.disconnect()
-  if (storeRetryTimer) clearTimeout(storeRetryTimer)
 })
 
 const loadNextProducts = () => loadProducts({ append: true })
@@ -832,6 +817,8 @@ const filterByCategory = (category) => {
   }
 
   .store-status-message {
+    display: flex;
+    justify-content: center;
     width: min(100%, 38rem);
   }
 
