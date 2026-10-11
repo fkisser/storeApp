@@ -1,4 +1,6 @@
-const PRODUCTS_API_URL = 'https://wt7ddvj5-8080.brs.devtunnels.ms/api/v1/stores/cafe-del-barrio/products'
+import { API_BASE_URL, STORE_SLUG } from '../src/config/store.js'
+
+const PRODUCTS_API_URL = `${API_BASE_URL}/api/v1/stores/${STORE_SLUG}/products`
 
 export default async function handler(request, response) {
   if (request.method !== 'GET') {
@@ -17,6 +19,10 @@ export default async function handler(request, response) {
     }
     if (Number.isFinite(requestedOffset) && requestedOffset >= 0) {
       upstreamUrl.searchParams.set('offset', String(requestedOffset))
+    }
+    for (const parameter of ['categoryId', 'q']) {
+      const value = requestUrl.searchParams.get(parameter)
+      if (value) upstreamUrl.searchParams.set(parameter, value)
     }
 
     const upstream = await fetch(upstreamUrl, {

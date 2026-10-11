@@ -1,10 +1,15 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
+import { requestStoreApi } from '../api/store.js'
 
 const props = defineProps({
   items: { type: Array, required: true },
-  cartId: { type: String, required: true },
+  cartToken: { type: String, required: true },
+  revision: { type: [String, Number], required: true },
   subtotal: { type: Number, required: true },
+  discountAmount: { type: Number, required: true },
+  totalAmount: { type: Number, required: true },
+  currency: { type: String, required: true },
   storeName: { type: String, required: true }
 })
 
@@ -23,6 +28,7 @@ const form = reactive({
 const sending = ref(false)
 const completed = ref(false)
 const orderReference = ref('')
+const checkoutError = ref('')
 
 const itemCount = computed(() => props.items.reduce((count, item) =>
   count + (item.productType === 'weight' ? 1 : item.quantity), 0
@@ -38,32 +44,45 @@ const formatQuantity = (item) => {
   return `${item.quantity.toFixed(0)} u`
 }
 
+const formatMoney = (amount) => new Intl.NumberFormat('es-AR', {
+  style: 'currency',
+  currency: props.currency || 'ARS'
+}).format(Number(amount) || 0)
+
 const confirmOrder = async () => {
-  if (sending.value || props.items.length === 0 || !props.cartId) return
+  if (sending.value || props.items.length === 0 || !props.cartToken) return
 
   sending.value = true
-  const order = {
-    cartId: props.cartId,
-    customer: {
-      name: form.name,
-      phone: form.phone,
-      email: form.email
-    },
-    fulfillment: {
-      method: form.fulfillment,
-      address: form.fulfillment === 'delivery' ? form.address : '',
-      locality: form.fulfillment === 'delivery' ? form.locality : '',
-      notes: form.fulfillment === 'delivery' ? form.notes : ''
-    },
-    paymentMethod: form.payment,
-    items: props.items.map((item) => ({ productId: item.id, quantity: item.quantity })),
-    subtotal: props.subtotal
+  checkoutError.value = ''
+  try {
+    const result = await requestStoreApi('/carts/current/checkout', {
+      method: 'POST',
+      cartToken: props.cartToken,
+      body: {
+        revision: props.revision,
+        customer: {
+          name: form.name,
+          phone: form.phone,
+          email: form.email
+        },
+        fulfillment: {
+          method: form.fulfillment,
+          address: form.fulfillment === 'delivery' ? form.address : '',
+          locality: form.fulfillment === 'delivery' ? form.locality : '',
+          notes: form.fulfillment === 'delivery' ? form.notes : ''
+        },
+        paymentMethod: form.payment
+      }
+    })
+    const order = result?.order ?? result?.data?.order ?? result
+    orderReference.value = order?.reference ?? order?.orderNumber ?? order?.id ?? 'Pedido confirmado'
+    completed.value = true
+    emit('complete', { cartToken: props.cartToken, result })
+  } catch (error) {
+    checkoutError.value = error.message || 'No se pudo confirmar el pedido.'
+  } finally {
+    sending.value = false
   }
-  orderReference.value = `VDP-${Math.floor(100000 + Math.random() * 900000)}`
-  await new Promise((resolve) => window.setTimeout(resolve, 900))
-  completed.value = true
-  sending.value = false
-  emit('complete', order)
 }
 </script>
 
@@ -168,25 +187,27 @@ const confirmOrder = async () => {
                 <strong>{{ item.name }}</strong>
                 <span>{{ formatQuantity(item) }}</span>
               </div>
-              <strong>${{ (item.pricePerType * item.quantity).toFixed(2) }}</strong>
+              <strong>{{ formatMoney(item.pricePerType * item.quantity) }}</strong>
             </li>
           </ul>
           <div class="summary-totals">
-            <div><span>Productos</span><strong>${{ subtotal.toFixed(2) }}</strong></div>
+            <div><span>Productos</span><strong>{{ formatMoney(subtotal) }}</strong></div>
+            <div v-if="discountAmount > 0"><span>Descuentos</span><strong>-{{ formatMoney(discountAmount) }}</strong></div>
             <div v-if="form.fulfillment === 'delivery'"><span>Envío</span><span>A coordinar</span></div>
             <div v-else><span>Retiro en tienda</span><span>Sin cargo</span></div>
-            <div class="summary-total"><span>Total de productos</span><strong>${{ subtotal.toFixed(2) }}</strong></div>
+            <div class="summary-total"><span>Total</span><strong>{{ formatMoney(totalAmount) }}</strong></div>
           </div>
           <p v-if="form.fulfillment === 'delivery'" class="delivery-note">El costo de envío se confirma al coordinar la entrega.</p>
           <button
             class="primary-button submit-order"
             type="submit"
-            :disabled="sending || items.length === 0"
+            :disabled="sending || items.length === 0 || revision === null"
             :aria-label="sending ? 'Enviando pedido' : 'Confirmar pedido'"
           >
             <span class="submit-button-content" :class="{ 'is-loading': sending }" aria-hidden="true">Confirmar pedido</span>
             <span v-if="sending" class="loading-spinner" aria-hidden="true"></span>
           </button>
+          <p v-if="checkoutError" class="checkout-error" role="alert">{{ checkoutError }}</p>
         </aside>
       </form>
     </template>
