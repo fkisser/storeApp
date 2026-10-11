@@ -9,14 +9,24 @@ export default async function handler(request, response) {
     return response.status(405).json({ error: 'Method not allowed' })
   }
 
-  const storeSlug = request.query.storeSlug
-  const pathSegments = Array.isArray(request.query.path)
-    ? request.query.path
-    : request.query.path
-      ? [request.query.path]
-      : []
+  const requestUrl = new URL(request.url, 'http://localhost')
+  const routeSegments = requestUrl.pathname.split('/').filter(Boolean)
+  const hasStoreApiPrefix = routeSegments[0] === 'api' &&
+    routeSegments[1] === 'v1' &&
+    routeSegments[2] === 'stores'
+  const encodedStoreSlug = routeSegments[3]
+  const encodedPathSegments = routeSegments.slice(4)
 
-  if (typeof storeSlug !== 'string' || pathSegments.length === 0) {
+  if (!hasStoreApiPrefix || !encodedStoreSlug || encodedPathSegments.length === 0) {
+    return response.status(400).json({ error: 'Invalid store API path' })
+  }
+
+  let storeSlug
+  let pathSegments
+  try {
+    storeSlug = decodeURIComponent(encodedStoreSlug)
+    pathSegments = encodedPathSegments.map((segment) => decodeURIComponent(segment))
+  } catch {
     return response.status(400).json({ error: 'Invalid store API path' })
   }
 
@@ -24,7 +34,6 @@ export default async function handler(request, response) {
     `/api/v1/stores/${encodeURIComponent(storeSlug)}/${pathSegments.map(encodeURIComponent).join('/')}`,
     API_BASE_URL
   )
-  const requestUrl = new URL(request.url, 'http://localhost')
   requestUrl.searchParams.forEach((value, key) => upstreamUrl.searchParams.append(key, value))
 
   const headers = new Headers()

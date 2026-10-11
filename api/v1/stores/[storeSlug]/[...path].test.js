@@ -39,7 +39,6 @@ describe('Vercel store API proxy', () => {
     const request = {
       method: 'PUT',
       url: '/api/v1/stores/cafe-del-barrio/carts/current/items/p-1?source=web',
-      query: { storeSlug: 'cafe-del-barrio', path: ['carts', 'current', 'items', 'p-1'] },
       headers: {
         accept: 'application/json',
         'content-type': 'application/json',
@@ -71,7 +70,6 @@ describe('Vercel store API proxy', () => {
     const request = {
       method: 'POST',
       url: '/api/v1/stores/almacen-demo/carts',
-      query: { storeSlug: 'almacen-demo', path: ['carts'] },
       headers: { accept: 'application/json' }
     }
     const response = createResponse()
