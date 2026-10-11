@@ -7,6 +7,7 @@ import storeInfo from './data/store-info.json'
 import { requestStoreApi } from './api/store.js'
 import { IS_HOME, STORE_SLUG } from './config/store.js'
 import { useVisitorCart } from './composables/useVisitorCart.js'
+import { resolveStoreAssetUrl } from './utils/resolveStoreAssetUrl.js'
 const isHome = IS_HOME
 const storeName = ref('')
 const storeNotFound = ref(false)
@@ -123,23 +124,26 @@ const loadStoreLogo = async (configuredLogo) => {
   if (!configuredLogo) return
 
   const logoLoader = storeLogoModules[configuredLogo]
-  logoUrl.value = logoLoader ? await logoLoader() : configuredLogo
+  logoUrl.value = logoLoader ? await logoLoader() : resolveStoreAssetUrl(configuredLogo)
 }
 const loadBannerImage = (configuredImage) => {
   bannerImageUrl.value = ''
   bannerImageFailed.value = true
   if (!configuredImage) return
 
+  const imageUrl = resolveStoreAssetUrl(configuredImage)
+  if (!imageUrl) return
+
   const image = new Image()
   image.onload = () => {
-    bannerImageUrl.value = configuredImage
+    bannerImageUrl.value = imageUrl
     bannerImageFailed.value = false
   }
   image.onerror = () => {
     bannerImageUrl.value = ''
     bannerImageFailed.value = true
   }
-  image.src = configuredImage
+  image.src = imageUrl
 }
 const products = reactive([])
 const categoryData = ref([])
@@ -204,7 +208,7 @@ const normalizeApiProduct = (product) => {
     id: product.id,
     name: product.name,
     description: product.description ?? '',
-    image,
+    image: resolveStoreAssetUrl(image),
     imageFallback: category.toLocaleLowerCase('es').includes('pasteler')
       ? 'pastry'
       : category.toLocaleLowerCase('es').includes('accesor')
