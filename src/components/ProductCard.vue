@@ -135,11 +135,40 @@ watch(() => props.product.image, () => {
     box-shadow: 0 22px 40px rgba(17, 24, 39, 0.12), 0 8px 16px rgba(17, 24, 39, 0.06);
   }
 
+  .product-card:not(.is-list) {
+    width: 100%;
+    max-width: 350px;
+    justify-self: center;
+  }
+
   .product-image {
     width: 100%;
     height: 220px;
     object-fit: cover;
     background: #f4f4f4;
+  }
+
+  .product-card:not(.is-list) :deep(.p-card-header) {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+  }
+
+  .product-card:not(.is-list) :deep(.p-card-header)::after {
+    position: absolute;
+    inset: 66.667% 0 0;
+    background: linear-gradient(to bottom, transparent 0%, var(--secondary-color) 100%);
+    content: '';
+    pointer-events: none;
+  }
+
+  .product-card:not(.is-list) .product-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
   }
 
   .product-image-fallback {
@@ -276,14 +305,32 @@ watch(() => props.product.image, () => {
   }
 
   .product-card.is-list :deep(.p-card-header) {
-    flex: 0 0 170px;
+    flex: 0 0 auto;
+    width: auto;
+    height: auto;
+    aspect-ratio: 2 / 3;
+    align-self: stretch;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .product-card.is-list :deep(.p-card-header)::after {
+    position: absolute;
+    inset: 0 0 0 66.667%;
+    background: linear-gradient(to right, transparent 0%, var(--secondary-color) 100%);
+    content: '';
+    pointer-events: none;
   }
 
   .product-card.is-list .product-image {
-    width: 170px;
-    min-width: 170px;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    min-width: 0;
     height: 100%;
-    min-height: 170px;
+    min-height: 0;
+    object-fit: cover;
+    object-position: center;
   }
 
   .product-card.is-list .product-body {

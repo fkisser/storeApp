@@ -239,7 +239,11 @@ export const useVisitorCart = ({ products }) => {
     } catch (error) {
       if (error.status === 404 && cartToken.value) {
         clearCartState()
-        cartError.value = 'El carrito ya no existe o venció. Intenta crear uno nuevo.'
+        try {
+          await ensureCart()
+        } catch {
+          cartError.value = 'No pudo crearse el carrito, contáctese con el proveedor del servicio.'
+        }
       } else if (!cartToken.value) {
         cartError.value = 'No pudo crearse el carrito, contáctese con el proveedor del servicio.'
       } else {

@@ -13,10 +13,10 @@ import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
 import RadioButton from 'primevue/radiobutton'
 import Select from 'primevue/select'
-import SelectButton from 'primevue/selectbutton'
 import Skeleton from 'primevue/skeleton'
 import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
+import ToggleSwitch from 'primevue/toggleswitch'
 import App from './App.vue'
 
 const app = createApp(App)
@@ -39,9 +39,9 @@ app.component('Message', Message)
 app.component('ProgressSpinner', ProgressSpinner)
 app.component('RadioButton', RadioButton)
 app.component('Select', Select)
-app.component('SelectButton', SelectButton)
 app.component('Skeleton', Skeleton)
 app.component('Tag', Tag)
 app.component('Textarea', Textarea)
+app.component('ToggleSwitch', ToggleSwitch)
 
 app.mount('#app')

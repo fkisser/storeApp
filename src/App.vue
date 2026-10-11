@@ -53,7 +53,10 @@ const getContrastColor = (color) => {
     return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
   })
   const luminance = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
-  return luminance > 0.42 ? '#202020' : '#fff'
+  const whiteContrast = 1.05 / (luminance + 0.05)
+  const darkTextLuminance = 0.0331
+  const darkContrast = (luminance + 0.05) / (darkTextLuminance + 0.05)
+  return darkContrast >= whiteContrast ? '#333333' : '#fff'
 }
 const storeSecondaryContrastColor = computed(() => getContrastColor(
   branding.secondaryColor || storeInfo.branding.secondaryColor
@@ -74,6 +77,8 @@ const storeThemeStyle = computed(() => {
     '--secondary-contrast-color': secondaryContrastColor,
     '--background-color': branding.backgroundColor || storeInfo.branding.backgroundColor,
     '--banner-image': bannerImageUrl.value ? `url(${bannerImageUrl.value})` : 'none',
+    '--banner-overlay': `color-mix(in srgb, ${primaryColor} 25%, transparent)`,
+    '--banner-text-color': contrastColor,
     '--p-primary-color': primaryColor,
     '--p-primary-hover-color': hoverColor,
     '--p-primary-active-color': activeColor,
@@ -239,8 +244,6 @@ const loadProducts = async ({ append = false } = {}) => {
     storeError.value = ''
     productsError.value = ''
     productsMoreError.value = ''
-    productsOffset.value = 0
-    productsHasMore.value = true
   }
 
   try {
@@ -255,11 +258,9 @@ const loadProducts = async ({ append = false } = {}) => {
     if (!append) {
       const failures = [settingsResult, productsResult, categoriesResult]
         .filter((result) => result.status === 'rejected')
-        .map((result) => result.reason)
       const notFound = failures.find((error) => error?.status === 404)
 
       if (notFound) {
-        storeNotFound.value = true
         return
       }
 
@@ -336,31 +337,23 @@ const categories = computed(() => {
 const search = ref('')
 const selectedCategory = ref('Todas')
 const layout = ref('cards')
+const isListLayout = computed({
+  get: () => layout.value === 'list',
+  set: (isList) => { layout.value = isList ? 'list' : 'cards' }
+})
 const cartOpen = ref(false)
 const checkoutOpen = ref(false)
 const pendingRemoval = ref(null)
 const removeDialogVisible = ref(false)
-const viewOptions = [
-  { value: 'cards', icon: 'pi pi-th-large', label: 'Tarjetas' },
-  { value: 'list', icon: 'pi pi-list', label: 'Lista' }
-]
-const selectedViewLabel = computed(() =>
-  viewOptions.find((option) => option.value === layout.value)?.label ?? 'Tarjetas'
-)
-const viewTogglePt = computed(() => ({
-  pcToggleButton: {
-    root: {
-      style: {
-        '--p-togglebutton-checked-background': 'var(--primary-color)',
-        '--p-togglebutton-checked-hover-background': 'var(--p-primary-hover-color)',
-        '--p-togglebutton-checked-border-color': 'var(--primary-color)',
-        '--p-togglebutton-checked-color': 'var(--primary-color)',
-        '--p-togglebutton-checked-hover-color': 'var(--primary-color)',
-        '--p-togglebutton-icon-checked-color': 'var(--primary-color)'
-      }
+const viewSwitchPt = {
+  root: {
+    style: {
+      '--p-toggleswitch-checked-background': 'var(--primary-color)',
+      '--p-toggleswitch-checked-hover-background': 'var(--primary-color)',
+      '--p-toggleswitch-checked-border-color': 'var(--primary-color)'
     }
   }
-}))
+}
 const sortOptions = [
   { value: 'name-asc', label: 'Nombre A-Z', icon: 'pi pi-sort-alpha-up' },
   { value: 'name-desc', label: 'Nombre Z-A', icon: 'pi pi-sort-alpha-down' },
@@ -554,42 +547,32 @@ const filterByCategory = (category) => {
             </div>
             <h1>{{ storeName }}</h1>
           </div>
-          <h2>{{ bannerSlogan }}</h2>
+          <h3 class="store-slogan">{{ bannerSlogan }}</h3>
         </template>
       </section>
       
       <section id="tools">
         <div class="toolbar">
-          <InputText v-model="search" type="search" placeholder="Buscar productos..." aria-label="Buscar productos" />
-          <div class="view-select" aria-label="Elegir tipo de vista">
-            <span class="view-label">Vista:</span>
-            <SelectButton
-              v-model="layout"
-              :options="viewOptions"
-              option-label="label"
-              option-value="value"
-              aria-label="Opciones de vista"
-              :allow-empty="false"
-              :pt="viewTogglePt"
-            >
-              <template #option="slotProps">
-                <i :class="slotProps.option.icon" aria-hidden="true"></i>
-                <span>{{ slotProps.option.label }}</span>
-              </template>
-            </SelectButton>
+          <InputText class="toolbar-search" v-model="search" type="search" placeholder="Buscar productos..." aria-label="Buscar productos" />
+          <div class="toolbar-selectors">
+            <div class="view-select" aria-label="Elegir tipo de vista">
+              <span class="view-mode-label" :class="{ 'is-active': !isListLayout }">Tarjetas</span>
+              <ToggleSwitch v-model="isListLayout" aria-label="Alternar entre vista de tarjetas y lista" :pt="viewSwitchPt" />
+              <span class="view-mode-label" :class="{ 'is-active': isListLayout }">Lista</span>
+            </div>
+            <label class="sort-select">
+              <span>Ordenar</span>
+              <Select v-model="sortOption" :options="sortOptions" option-label="label" aria-label="Ordenar productos" :pt="sortSelectPt">
+                <template #value="{ value, placeholder }">
+                  <span v-if="value" class="sort-value"><i :class="value.icon" aria-hidden="true"></i>{{ value.label }}</span>
+                  <span v-else>{{ placeholder }}</span>
+                </template>
+                <template #option="{ option }">
+                  <span class="sort-value"><i :class="option.icon" aria-hidden="true"></i>{{ option.label }}</span>
+                </template>
+              </Select>
+            </label>
           </div>
-          <label class="sort-select">
-            <span>Ordenar</span>
-            <Select v-model="sortOption" :options="sortOptions" option-label="label" aria-label="Ordenar productos" :pt="sortSelectPt">
-              <template #value="{ value, placeholder }">
-                <span v-if="value" class="sort-value"><i :class="value.icon" aria-hidden="true"></i>{{ value.label }}</span>
-                <span v-else>{{ placeholder }}</span>
-              </template>
-              <template #option="{ option }">
-                <span class="sort-value"><i :class="option.icon" aria-hidden="true"></i>{{ option.label }}</span>
-              </template>
-            </Select>
-          </label>
         </div>
 
         <div class="categories">
@@ -844,15 +827,23 @@ const filterByCategory = (category) => {
     justify-content: center;
     align-items: center;
     text-align: center;
-    background-image: 
-      linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)),
+    background-image:
+      linear-gradient(var(--banner-overlay), var(--banner-overlay)),
       var(--banner-image);
     background-repeat: no-repeat;
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
     min-height: 25vh;
-    color: white;
+    color: var(--banner-text-color);
+  }
+
+  .store-slogan {
+    margin: 0.75rem 0 0;
+    color: inherit;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.45;
   }
   .identity {
     display: flex;
@@ -907,56 +898,80 @@ const filterByCategory = (category) => {
     padding: 1.2rem 1.4rem;
     border: 3px solid var(--primary-color);
     background: rgba(255, 255, 255, 0.8);
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 12px 30px color-mix(in srgb, var(--primary-color) 16%, transparent);
   }
 
   .toolbar {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    justify-content: center;
+    justify-content: stretch;
     gap: 1rem;
   }
 
-  #tools :deep(.p-inputtext) {
-    width: min(100%, 420px);
-    min-height: 3rem;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+  #tools :deep(.toolbar-search.p-inputtext) {
+    width: 100%;
+    min-width: 0;
+    min-height: 3.25rem;
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--primary-color) 18%, transparent);
+  }
+
+  #tools :deep(.toolbar-search.p-inputtext:enabled:focus) {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--primary-color) 22%, transparent);
+  }
+
+  .toolbar-selectors {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 1.25rem;
   }
 
   .view-select {
     display: inline-flex;
+    min-width: 0;
+    height: 3.25rem;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.45rem 0.6rem;
-    font-weight: 700;
+    padding: 0 0.6rem;
+    font-weight: 500;
     color: var(--primary-color);
-    button {
-      color: var(--primary-color);
-    }
-  }
-
-  .view-label {
-    font-size: 0.9rem;
     white-space: nowrap;
   }
 
-  .view-label strong {
+  .view-mode-label {
+    font-size: 0.9rem;
+    white-space: nowrap;
+    color: color-mix(in srgb, var(--primary-color) 48%, #64748b);
+  }
+
+  .view-mode-label.is-active {
     color: var(--primary-color);
+    font-weight: 600;
+  }
+
+  .view-select :deep(.p-toggleswitch) {
+    flex: 0 0 auto;
   }
 
   .sort-select {
-    display: inline-flex;
-    min-width: min(100%, 17rem);
+    display: flex;
+    min-width: 0;
+    padding: 0 0.6rem;
     align-items: center;
+    align-content: center;
     gap: 0.65rem;
     color: var(--primary-color);
     font-size: 0.9rem;
-    font-weight: 700;
+    font-weight: 500;
   }
 
   .sort-select :deep(.p-select) {
     min-width: 12rem;
+    max-width: 16rem;
+    height: 3.25rem;
     border-color: color-mix(in srgb, var(--primary-color) 48%, #fff);
     background: #fff;
     color: var(--primary-color);
@@ -965,6 +980,13 @@ const filterByCategory = (category) => {
   .sort-select :deep(.p-select-label),
   .sort-select :deep(.p-select-dropdown) {
     color: var(--primary-color);
+  }
+
+  .sort-select :deep(.p-select-label) {
+    display: flex;
+    height: 100%;
+    align-items: center;
+    padding-block: 0;
   }
 
   .sort-select :deep(.p-select:not(.p-disabled).p-focus) {
@@ -979,15 +1001,6 @@ const filterByCategory = (category) => {
     white-space: nowrap;
   }
 
-  .view-select :deep(.p-selectbutton) {
-    display: inline-flex;
-    flex-wrap: nowrap;
-  }
-
-  .view-select :deep(.p-button) {
-    gap: 0.45rem;
-  }
-
   .categories {
     display: flex;
     flex-direction: column;
@@ -997,7 +1010,7 @@ const filterByCategory = (category) => {
 
   .categories h3 {
     margin: 0;
-    color: #222;
+    color: var(--primary-color);
   }
 
   .category-options {
@@ -1116,6 +1129,7 @@ const filterByCategory = (category) => {
     text-align: center;
     padding: 2rem;
     border-radius: 16px;
+    border: 2px solid var(--secondary-color);
     background: rgba(255, 255, 255, 0.8);
     color: #555;
     font-weight: 600;
@@ -1159,6 +1173,7 @@ const filterByCategory = (category) => {
   .cart-fab :deep(.p-button-icon) {
     margin: 0;
     font-size: 1.8rem;
+    color: var(--primary-color) !important;
   }
 
   .cart-fab :deep(.p-badge) {
@@ -1328,6 +1343,51 @@ const filterByCategory = (category) => {
 
     .skeleton-product-card.is-list :deep(.p-card-body) {
       flex-direction: column;
+    }
+  }
+
+  @media (max-width: 1050px) {
+    .toolbar {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    #tools :deep(.toolbar-search.p-inputtext) {
+      width: 100%;
+    }
+
+    .toolbar-selectors {
+      width: 100%;
+      justify-content: space-between;
+    }
+
+  }
+
+  @media (max-width: 700px) {
+    .toolbar-selectors {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      width: 100%;
+      justify-items: stretch;
+      gap: 0.75rem;
+    }
+
+    .view-select,
+    .sort-select {
+      width: 100%;
+      min-width: 0;
+      min-height: 3.25rem;
+      align-items: center;
+      flex-direction: row;
+      gap: 0.65rem;
+      padding: 0;
+      justify-content: flex-start;
+    }
+
+    .sort-select :deep(.p-select) {
+      flex: 1 1 auto;
+      width: 100%;
+      max-width: none;
+      min-width: 0;
     }
   }
 

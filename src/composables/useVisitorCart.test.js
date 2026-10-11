@@ -166,21 +166,44 @@ describe('useVisitorCart', () => {
     expect(mountedCart.cart.cartItems.value).toEqual([])
   })
 
-  it('keeps an expired-cart 404 local and clears only the cart credentials', async () => {
+  it('replaces an expired cart automatically without exposing an error', async () => {
     localStorage.setItem('vitrinapp-cart-almacen-demo', JSON.stringify({
       token: 'expired-token',
       revision: 3,
       items: [{ id: 'product-1', quantity: 2 }]
     }))
-    fetch.mockResolvedValueOnce(jsonResponse({ error: 'cart expired' }, 404))
+    fetch
+      .mockResolvedValueOnce(jsonResponse({ error: 'cart expired' }, 404))
+      .mockResolvedValueOnce(jsonResponse({
+        cart: {
+          id: 2,
+          status: 'ACTIVE',
+          revision: 0,
+          subtotalAmount: '0',
+          discountAmount: '0',
+          totalAmount: '0',
+          currency: 'ARS'
+        },
+        accessToken: 'replacement-token'
+      }, 201))
     mountedCart = createMountedCart()
     mountedCart.cart.restoreCart()
 
     await mountedCart.cart.initializeCart()
 
-    expect(mountedCart.cart.cartToken.value).toBe('')
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(fetch.mock.calls[0][0]).toBe('/api/v1/stores/almacen-demo/carts/current')
+    expect(fetch.mock.calls[0][1].headers['X-Cart-Token']).toBe('expired-token')
+    expect(fetch.mock.calls[1][0]).toBe('/api/v1/stores/almacen-demo/carts')
+    expect(fetch.mock.calls[1][1].method).toBe('POST')
+    expect(fetch.mock.calls[1][1]).not.toHaveProperty('body')
+    expect(mountedCart.cart.cartToken.value).toBe('replacement-token')
     expect(mountedCart.cart.cartItems.value).toEqual([])
-    expect(mountedCart.cart.cartError.value).toMatch(/carrito/i)
-    expect(localStorage.getItem('vitrinapp-cart-almacen-demo')).toBeNull()
+    expect(mountedCart.cart.cartError.value).toBe('')
+    expect(JSON.parse(localStorage.getItem('vitrinapp-cart-almacen-demo'))).toMatchObject({
+      token: 'replacement-token',
+      revision: 0,
+      items: []
+    })
   })
 })
