@@ -4,7 +4,7 @@ import { computed, ref, watch } from 'vue'
 const props = defineProps({
   product: { type: Object, required: true },
   quantityLabel: { type: String, required: true },
-  subtotal: { type: Number, default: 0 },
+  storeClosed: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
   inCart: { type: Boolean, default: false },
   decreaseRemovesItem: { type: Boolean, default: false },
@@ -55,6 +55,7 @@ const addAriaLabel = computed(() => props.busy
       <Tag :value="product.category" severity="primary" rounded class="category-badge" />
       <small class="product-price-base image-price">{{ unitPriceLabel }}</small>
       <Button
+        v-if="!storeClosed"
         class="add-fab"
         type="button"
         rounded
@@ -71,7 +72,7 @@ const addAriaLabel = computed(() => props.busy
       <h3>{{ product.name }}</h3>
       <p class="product-description">{{ product.description }}</p>
 
-      <div class="product-quantity" aria-label="Seleccionar cantidad">
+      <div v-if="!storeClosed" class="product-quantity" aria-label="Seleccionar cantidad">
         <Button
           type="button"
           :disabled="busy || (unavailable && !decreaseRemovesItem) || decreaseDisabled"
@@ -99,9 +100,6 @@ const addAriaLabel = computed(() => props.busy
         />
       </div>
 
-      <div class="product-footer">
-        <strong class="product-subtotal">${{ subtotal.toFixed(2) }}</strong>
-      </div>
       </div>
     </template>
   </Card>
@@ -179,8 +177,8 @@ const addAriaLabel = computed(() => props.busy
   .product-image-fallback {
     display: grid;
     place-items: center;
-    background: #edf2ee;
-    color: #496650;
+    background: #f3f4f6;
+    color: #6b7280;
   }
 
   .product-image-fallback svg {
@@ -194,7 +192,7 @@ const addAriaLabel = computed(() => props.busy
   }
 
   .product-image-fallback i {
-    color: var(--primary-text-color);
+    color: currentColor;
     font-size: 3.5rem;
   }
 
@@ -218,16 +216,9 @@ const addAriaLabel = computed(() => props.busy
     left: 0.6rem;
     bottom: 0.6rem;
     z-index: 1;
-    padding: 0.25rem 0.6rem;
-    border-radius: 999px;
-    background: var(--secondary-color);
-    color: var(--secondary-contrast-color);
-    font-size: 0.8rem;
-  }
-
-  .product-subtotal {
-    color: #111827;
-    font-size: 1.5rem;
+    padding: 0;
+    color: var(--p-primary-contrast-color);
+    font-size: 1rem;
     font-weight: 800;
   }
 
@@ -240,11 +231,13 @@ const addAriaLabel = computed(() => props.busy
 
   .product-description {
     margin: 0;
-    max-height: 3em;
+    max-height: 4.5em;
     overflow-y: auto;
     overscroll-behavior: contain;
     color: #4b5563;
     line-height: 1.5;
+    scrollbar-color: #9ca3af transparent;
+    scrollbar-width: thin;
   }
 
   .product-quantity {
@@ -298,16 +291,6 @@ const addAriaLabel = computed(() => props.busy
     font-size: 1.4rem;
   }
 
-  .product-footer {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.8rem;
-    margin-top: auto;
-    color: #4b5563;
-    font-size: 0.8rem;
-  }
-
   @media (max-width: 900px) {
     .product-card .product-body {
       justify-content: center;
@@ -338,21 +321,14 @@ const addAriaLabel = computed(() => props.busy
     .product-card .image-price {
       left: 0.4rem;
       bottom: 0.4rem;
-      padding: 0.15rem 0.45rem;
-      font-size: 0.65rem;
+      padding: 0;
+      font-size: 0.85rem;
     }
 
     .product-card .product-description {
       font-size: 0.8rem;
       line-height: 1.4;
-      max-height: 2.8em;
-    }
-
-    .product-card .product-footer {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 0.5rem;
-      margin-top: 0;
+      max-height: 4.2em;
     }
 
     .product-card h3 {
@@ -373,8 +349,5 @@ const addAriaLabel = computed(() => props.busy
       height: 1.8rem;
     }
 
-    .product-card .product-subtotal {
-      font-size: 1.2rem;
-    }
   }
 </style>

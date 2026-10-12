@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import handler from './storeProxy.js'
+import handler, { config } from './storeProxy.js'
 
 const createResponse = () => ({
   headers: {},
@@ -103,5 +103,39 @@ describe('Vercel store API proxy', () => {
     expect(options).not.toHaveProperty('body')
     expect(response.statusCode).toBe(201)
     expect(response.body).toContain('opaque-token')
+  })
+
+  it('forwards order tracking credentials and multipart bytes without changing the boundary', async () => {
+    const multipartBody = Buffer.from('--proof-boundary\r\nfile bytes\r\n--proof-boundary--\r\n')
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 201,
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      text: async () => '{"id":5,"status":"PENDING"}'
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const request = {
+      method: 'POST',
+      url: '/api/v1/stores/almacen-demo/orders/current/transfer-proofs',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'multipart/form-data; boundary=proof-boundary',
+        'x-order-tracking-token': 'private-order-token'
+      },
+      async *[Symbol.asyncIterator]() {
+        yield multipartBody.subarray(0, 16)
+        yield multipartBody.subarray(16)
+      }
+    }
+    const response = createResponse()
+
+    await handler(request, response)
+
+    const [upstreamUrl, options] = fetchMock.mock.calls[0]
+    expect(upstreamUrl.pathname).toBe('/api/v1/stores/almacen-demo/orders/current/transfer-proofs')
+    expect(options.headers.get('X-Order-Tracking-Token')).toBe('private-order-token')
+    expect(options.headers.get('Content-Type')).toBe('multipart/form-data; boundary=proof-boundary')
+    expect(options.body).toEqual(multipartBody)
+    expect(upstreamUrl.href).not.toContain('private-order-token')
+    expect(config.api.bodyParser).toBe(false)
   })
 })

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { requestStoreApi } from '../api/store.js'
 import { formatCurrency } from '../utils/formatCurrency.js'
 
@@ -11,29 +11,68 @@ const props = defineProps({
   discountAmount: { type: Number, required: true },
   totalAmount: { type: Number, required: true },
   currency: { type: String, required: true },
-  storeName: { type: String, required: true }
+  storeName: { type: String, required: true },
+  saveOrder: { type: Function, required: true }
 })
 
 const emit = defineEmits(['back', 'complete'])
 
 const form = reactive({
-  name: '',
   phone: '',
   email: '',
-  fulfillment: 'delivery',
+  fulfillmentType: '',
+  fulfillmentDate: '',
+  fulfillmentWindowId: '',
   address: '',
   locality: '',
   notes: '',
-  payment: 'cash'
+  paymentProvider: ''
 })
 const sending = ref(false)
 const completed = ref(false)
+const savedOrder = ref(null)
+const checkoutResult = ref(null)
+const cartCleared = ref(false)
+const orderSaveWarning = ref('')
 const orderReference = ref('')
 const checkoutError = ref('')
+const optionsLoading = ref(true)
+const optionsError = ref('')
+const checkoutOptions = ref(null)
+const windowsLoading = ref(false)
+const windowsError = ref('')
+const fulfillmentDays = ref([])
+const quoteLoading = ref(false)
+const quoteError = ref('')
+const quote = ref(null)
 
 const itemCount = computed(() => props.items.reduce((count, item) =>
   count + (item.productType === 'weight' ? 1 : item.quantity), 0
 , 0))
+
+const enabledFulfillments = computed(() => (checkoutOptions.value?.fulfillmentOptions ?? [])
+  .filter((option) => option.enabled && option.paymentOptions?.some((payment) => payment.enabled)))
+const selectedFulfillment = computed(() => enabledFulfillments.value
+  .find((option) => option.type === form.fulfillmentType))
+const enabledPayments = computed(() => (selectedFulfillment.value?.paymentOptions ?? [])
+  .filter((payment) => payment.enabled))
+const selectedDay = computed(() => fulfillmentDays.value
+  .find((day) => day.date === form.fulfillmentDate))
+const enabledWindows = computed(() => selectedDay.value?.windows ?? [])
+const selectedWindow = computed(() => enabledWindows.value
+  .find((window) => String(window.id) === String(form.fulfillmentWindowId)))
+const canSubmit = computed(() =>
+  !optionsLoading.value &&
+  !optionsError.value &&
+  checkoutOptions.value?.checkoutEnabled &&
+  enabledFulfillments.value.length > 0 &&
+  Boolean(form.paymentProvider) &&
+  Boolean(form.fulfillmentDate) &&
+  Boolean(form.fulfillmentWindowId) &&
+  Boolean(quote.value) &&
+  !windowsLoading.value &&
+  !quoteLoading.value
+)
 
 const formatQuantity = (item) => {
   if (item.productType === 'weight') {
@@ -45,10 +84,118 @@ const formatQuantity = (item) => {
   return `${item.quantity.toFixed(0)} u`
 }
 
-const formatMoney = (amount) => formatCurrency(amount, props.currency || 'ARS')
+const formatMoney = (amount, currency = quote.value?.currency || props.currency || 'ARS') =>
+  formatCurrency(Number(amount ?? 0), currency)
+
+const unwrapPayload = (payload, key) => payload?.[key] ?? payload?.data?.[key] ?? payload?.data ?? payload
+
+const today = () => {
+  const date = new Date()
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  return localDate.toISOString().slice(0, 10)
+}
+
+const loadCheckoutOptions = async () => {
+  optionsLoading.value = true
+  optionsError.value = ''
+  try {
+    const payload = unwrapPayload(await requestStoreApi('/carts/current/checkout-options', {
+      cartToken: props.cartToken
+    }), 'options')
+    checkoutOptions.value = payload
+    const firstFulfillment = enabledFulfillments.value.find((option) => option.type === 'PICKUP') ??
+      enabledFulfillments.value[0]
+    if (!payload?.checkoutEnabled || !firstFulfillment) {
+      optionsError.value = 'La tienda no esta aceptando pedidos por el momento.'
+      return
+    }
+    form.fulfillmentType = firstFulfillment.type
+    form.paymentProvider = firstFulfillment.paymentOptions.find((payment) => payment.enabled)?.provider ?? ''
+  } catch (error) {
+    optionsError.value = error.message || 'No se pudieron cargar las opciones de compra.'
+  } finally {
+    optionsLoading.value = false
+  }
+}
+
+const loadFulfillmentWindows = async (fulfillmentType) => {
+  windowsLoading.value = true
+  windowsError.value = ''
+  fulfillmentDays.value = []
+  form.fulfillmentDate = ''
+  form.fulfillmentWindowId = ''
+  try {
+    const payload = unwrapPayload(await requestStoreApi('/carts/current/fulfillment-windows', {
+      cartToken: props.cartToken,
+      query: { fulfillmentType, from: today(), days: 14 }
+    }), 'fulfillmentWindows')
+    fulfillmentDays.value = Array.isArray(payload?.days) ? payload.days : []
+    const firstDay = fulfillmentDays.value.find((day) => day.windows?.length)
+    if (!firstDay) {
+      windowsError.value = 'No hay fechas y horarios disponibles para esta modalidad.'
+      return
+    }
+    form.fulfillmentDate = firstDay.date
+    form.fulfillmentWindowId = String(firstDay.windows[0].id)
+  } catch (error) {
+    windowsError.value = error.status === 422
+      ? 'Esta modalidad ya no esta disponible. Selecciona otra opcion.'
+      : error.message || 'No se pudieron cargar las fechas disponibles.'
+  } finally {
+    windowsLoading.value = false
+  }
+}
+
+const loadQuote = async (fulfillmentType) => {
+  quoteLoading.value = true
+  quoteError.value = ''
+  quote.value = null
+  try {
+    quote.value = unwrapPayload(await requestStoreApi('/carts/current/quote', {
+      method: 'POST',
+      cartToken: props.cartToken,
+      body: { fulfillmentType }
+    }), 'quote')
+  } catch (error) {
+    quoteError.value = error.message || 'No se pudo calcular el total del pedido.'
+  } finally {
+    quoteLoading.value = false
+  }
+}
+
+watch(() => form.fulfillmentType, (fulfillmentType) => {
+  if (!fulfillmentType) return
+  const firstPayment = enabledFulfillments.value
+    .find((option) => option.type === fulfillmentType)?.paymentOptions
+    ?.find((payment) => payment.enabled)
+  if (!enabledPayments.value.some((payment) => payment.provider === form.paymentProvider)) {
+    form.paymentProvider = firstPayment?.provider ?? ''
+  }
+  void loadFulfillmentWindows(fulfillmentType)
+  void loadQuote(fulfillmentType)
+})
+
+watch(() => form.fulfillmentDate, (date) => {
+  const firstWindow = fulfillmentDays.value.find((day) => day.date === date)?.windows?.[0]
+  form.fulfillmentWindowId = firstWindow ? String(firstWindow.id) : ''
+})
+
+const retrySaveOrder = () => {
+  if (!savedOrder.value) return
+  try {
+    props.saveOrder(savedOrder.value)
+    orderSaveWarning.value = ''
+    if (!cartCleared.value) {
+      cartCleared.value = true
+      emit('complete', { cartToken: props.cartToken, result: checkoutResult.value })
+    }
+  } catch (error) {
+    orderSaveWarning.value = error.message || 'No se pudo guardar el seguimiento en este navegador.'
+  }
+}
 
 const confirmOrder = async () => {
-  if (sending.value || props.items.length === 0 || !props.cartToken) return
+  if (sending.value || props.items.length === 0 || !props.cartToken || !canSubmit.value) return
 
   sending.value = true
   checkoutError.value = ''
@@ -57,31 +204,32 @@ const confirmOrder = async () => {
       method: 'POST',
       cartToken: props.cartToken,
       body: {
-        revision: props.revision,
-        customer: {
-          name: form.name,
-          phone: form.phone,
-          email: form.email
-        },
-        fulfillment: {
-          method: form.fulfillment,
-          address: form.fulfillment === 'delivery' ? form.address : '',
-          locality: form.fulfillment === 'delivery' ? form.locality : '',
-          notes: form.fulfillment === 'delivery' ? form.notes : ''
-        },
-        paymentMethod: form.payment
+        customerEmail: form.email || undefined,
+        customerPhone: form.phone,
+        fulfillmentType: form.fulfillmentType,
+        addressSnapshot: form.fulfillmentType === 'DELIVERY'
+          ? { address: form.address, locality: form.locality, notes: form.notes }
+          : null,
+        fulfillmentDate: form.fulfillmentDate,
+        fulfillmentWindowId: Number(form.fulfillmentWindowId),
+        paymentProvider: form.paymentProvider,
+        revision: quote.value?.revision ?? props.revision
       }
     })
     const order = result?.order ?? result?.data?.order ?? result
-    orderReference.value = order?.reference ?? order?.orderNumber ?? order?.id ?? 'Pedido confirmado'
+    checkoutResult.value = result
+    savedOrder.value = order
+    orderReference.value = order?.orderId ?? 'Pedido confirmado'
     completed.value = true
-    emit('complete', { cartToken: props.cartToken, result })
+    retrySaveOrder()
   } catch (error) {
     checkoutError.value = error.message || 'No se pudo confirmar el pedido.'
   } finally {
     sending.value = false
   }
 }
+
+onMounted(loadCheckoutOptions)
 </script>
 
 <template>
@@ -96,9 +244,17 @@ const confirmOrder = async () => {
         <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></svg>
       </div>
       <p class="checkout-eyebrow">Pedido confirmado</p>
-      <h1>Gracias, {{ form.name }}</h1>
-      <p>Registramos tu pedido. Guarda este número de referencia:</p>
+      <h1>Gracias por tu compra</h1>
+      <p>Registramos tu pedido número:</p>
       <strong class="order-reference">{{ orderReference }}</strong>
+      <p v-if="savedOrder?.paymentProvider === 'TRANSFER' && savedOrder?.transferAlias">
+        Transferí a <strong>{{ savedOrder.transferAlias }}</strong>
+        <template v-if="savedOrder.transferAccountHolder">, a nombre de <strong>{{ savedOrder.transferAccountHolder }}</strong></template>.
+      </p>
+      <Message v-if="orderSaveWarning" severity="warn" :closable="false">
+        {{ orderSaveWarning }}
+        <Button label="Reintentar guardado" text @click="retrySaveOrder" />
+      </Message>
       <Button label="Volver a la tienda" icon="pi pi-arrow-left" @click="emit('back')" />
     </section>
 
@@ -113,12 +269,14 @@ const confirmOrder = async () => {
 
       <form class="checkout-layout" @submit.prevent="confirmOrder">
         <div class="checkout-fields">
+          <Message v-if="optionsLoading" severity="info" :closable="false">Cargando opciones de compra...</Message>
+          <Message v-else-if="optionsError" severity="error" :closable="false">
+            {{ optionsError }}
+            <Button label="Reintentar" icon="pi pi-refresh" text @click="loadCheckoutOptions" />
+          </Message>
+
           <section class="checkout-section">
             <h2>Datos de contacto</h2>
-            <label class="field">
-              <span>Nombre y apellido</span>
-              <InputText v-model.trim="form.name" name="name" autocomplete="name" required />
-            </label>
             <div class="field-row">
               <label class="field">
                 <span>Teléfono</span>
@@ -134,16 +292,26 @@ const confirmOrder = async () => {
           <section class="checkout-section">
             <h2>Cómo recibir tu pedido</h2>
             <div class="choice-grid">
-              <label class="choice-option" :class="{ selected: form.fulfillment === 'delivery' }" for="fulfillment-delivery">
-                <RadioButton v-model="form.fulfillment" input-id="fulfillment-delivery" name="fulfillment" value="delivery" />
-                <span class="choice-copy"><strong>Envío a domicilio</strong><small>Coordinamos la entrega contigo</small></span>
-              </label>
-              <label class="choice-option" :class="{ selected: form.fulfillment === 'pickup' }" for="fulfillment-pickup">
-                <RadioButton v-model="form.fulfillment" input-id="fulfillment-pickup" name="fulfillment" value="pickup" />
-                <span class="choice-copy"><strong>Retiro en tienda</strong><small>Retiras tu pedido personalmente</small></span>
+              <label
+                v-for="option in enabledFulfillments"
+                :key="option.type"
+                class="choice-option"
+                :class="{ selected: form.fulfillmentType === option.type }"
+                :for="`fulfillment-${option.type}`"
+              >
+                <RadioButton
+                  v-model="form.fulfillmentType"
+                  :input-id="`fulfillment-${option.type}`"
+                  name="fulfillment"
+                  :value="option.type"
+                />
+                <span class="choice-copy">
+                  <strong>{{ option.type === 'PICKUP' ? 'Retiro en tienda' : 'Envío a domicilio' }}</strong>
+                  <small>{{ option.type === 'PICKUP' ? 'Retira tu pedido personalmente' : 'Recibe tu pedido en tu dirección' }}</small>
+                </span>
               </label>
             </div>
-            <div v-if="form.fulfillment === 'delivery'" class="field-row address-fields">
+            <div v-if="form.fulfillmentType === 'DELIVERY'" class="field-row address-fields">
               <label class="field">
                 <span>Dirección</span>
                 <InputText v-model.trim="form.address" name="address" autocomplete="street-address" required />
@@ -157,18 +325,48 @@ const confirmOrder = async () => {
                 <Textarea v-model.trim="form.notes" name="notes" rows="2" auto-resize />
               </label>
             </div>
+            <div class="field-row schedule-fields">
+              <label class="field">
+                <span>Fecha disponible</span>
+                <select v-model="form.fulfillmentDate" name="fulfillmentDate" required :disabled="windowsLoading || !fulfillmentDays.length">
+                  <option v-for="day in fulfillmentDays" :key="day.date" :value="day.date">
+                    {{ new Date(`${day.date}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }) }}
+                  </option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Horario</span>
+                <select v-model="form.fulfillmentWindowId" name="fulfillmentWindowId" required :disabled="windowsLoading || !enabledWindows.length">
+                  <option v-for="window in enabledWindows" :key="window.id" :value="String(window.id)">
+                    {{ window.startsAt }} a {{ window.endsAt }}
+                  </option>
+                </select>
+              </label>
+            </div>
+            <Message v-if="windowsLoading" severity="info" :closable="false">Buscando fechas y horarios...</Message>
+            <Message v-else-if="windowsError" severity="warn" :closable="false">{{ windowsError }}</Message>
           </section>
 
           <section class="checkout-section">
             <h2>Forma de pago</h2>
             <div class="choice-grid payment-grid">
-              <label class="choice-option" :class="{ selected: form.payment === 'cash' }" for="payment-cash">
-                <RadioButton v-model="form.payment" input-id="payment-cash" name="payment" value="cash" />
-                <span class="choice-copy"><strong>Efectivo</strong><small>Al recibir o retirar</small></span>
-              </label>
-              <label class="choice-option" :class="{ selected: form.payment === 'card' }" for="payment-card">
-                <RadioButton v-model="form.payment" input-id="payment-card" name="payment" value="card" />
-                <span class="choice-copy"><strong>Tarjeta</strong><small>Al recibir o retirar</small></span>
+              <label
+                v-for="payment in enabledPayments"
+                :key="payment.provider"
+                class="choice-option"
+                :class="{ selected: form.paymentProvider === payment.provider }"
+                :for="`payment-${payment.provider}`"
+              >
+                <RadioButton
+                  v-model="form.paymentProvider"
+                  :input-id="`payment-${payment.provider}`"
+                  name="payment"
+                  :value="payment.provider"
+                />
+                <span class="choice-copy">
+                  <strong>{{ payment.provider === 'CASH' ? 'Efectivo' : 'Transferencia' }}</strong>
+                  <small>{{ payment.provider === 'CASH' ? 'Al recibir o retirar' : 'Transferencia bancaria' }}</small>
+                </span>
               </label>
             </div>
           </section>
@@ -187,17 +385,20 @@ const confirmOrder = async () => {
             </li>
           </ul>
           <div class="summary-totals">
-            <div><span>Productos</span><strong>{{ formatMoney(subtotal) }}</strong></div>
-            <div v-if="discountAmount > 0"><span>Descuentos</span><strong>-{{ formatMoney(discountAmount) }}</strong></div>
-            <div v-if="form.fulfillment === 'delivery'"><span>Envío</span><span>A coordinar</span></div>
-            <div v-else><span>Retiro en tienda</span><span>Sin cargo</span></div>
-            <div class="summary-total"><span>Total</span><strong>{{ formatMoney(totalAmount) }}</strong></div>
+            <div><span>Carrito</span><strong>{{ formatMoney(quote?.cartTotalAmount ?? totalAmount) }}</strong></div>
+            <div v-if="form.fulfillmentType === 'DELIVERY'"><span>Envío</span><strong>{{ formatMoney(quote?.deliveryFee) }}</strong></div>
+            <div v-else><span>Retiro en tienda</span><strong>{{ formatMoney(quote?.deliveryFee ?? 0) }}</strong></div>
+            <div class="summary-total"><span>Total</span><strong>{{ formatMoney(quote?.totalAmount ?? totalAmount) }}</strong></div>
           </div>
-          <p v-if="form.fulfillment === 'delivery'" class="delivery-note">El costo de envío se confirma al coordinar la entrega.</p>
+          <p v-if="quoteLoading" class="delivery-note">Actualizando cotización...</p>
+          <Message v-if="quoteError" severity="error" :closable="false" class="checkout-error">
+            {{ quoteError }}
+            <Button label="Reintentar" icon="pi pi-refresh" text @click="loadQuote(form.fulfillmentType)" />
+          </Message>
           <Button
             class="submit-order"
             type="submit"
-            :disabled="sending || items.length === 0 || revision === null"
+            :disabled="sending || items.length === 0 || !canSubmit"
             label="Confirmar pedido"
             :loading="sending"
             loading-icon="pi pi-spin pi-spinner"
@@ -339,6 +540,23 @@ const confirmOrder = async () => {
   width: 100%;
   min-height: 2.9rem;
   font-weight: 400;
+}
+
+.field > select {
+  width: 100%;
+  min-height: 2.9rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #d2d8d3;
+  border-radius: 6px;
+  background: #fff;
+  color: #18251c;
+  font: inherit;
+  font-weight: 400;
+}
+
+.field > select:focus-visible {
+  outline: 3px solid var(--p-focus-ring-color);
+  border-color: var(--p-primary-color);
 }
 
 .field :deep(.p-textarea) {

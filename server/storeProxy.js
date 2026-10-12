@@ -1,8 +1,22 @@
 import { API_BASE_URL } from '../src/config/store.js'
 
 const allowedMethods = new Set(['GET', 'POST', 'PUT', 'DELETE'])
-const forwardedHeaders = ['accept', 'content-type', 'x-cart-token']
+const forwardedHeaders = ['accept', 'content-type', 'x-cart-token', 'x-order-tracking-token']
 const routeParameters = ['storeSlug', 'path']
+
+export const config = { api: { bodyParser: false } }
+
+const readRequestBody = async (request) => {
+  if (request.body !== undefined) {
+    if (Buffer.isBuffer(request.body) || typeof request.body === 'string') return request.body
+    return JSON.stringify(request.body)
+  }
+  if (typeof request[Symbol.asyncIterator] !== 'function') return undefined
+
+  const chunks = []
+  for await (const chunk of request) chunks.push(chunk)
+  return chunks.length ? Buffer.concat(chunks) : undefined
+}
 
 // vercel.json rewrites /api/v1/stores/:storeSlug/:path* to this function with both values as query parameters.
 const readRoute = (request, requestUrl) => {
@@ -62,13 +76,10 @@ export default async function handler(request, response) {
     if (value) headers.set(name, value)
   }
 
-  const body = ['GET', 'HEAD'].includes(request.method) || request.body === undefined
-    ? undefined
-    : typeof request.body === 'string'
-      ? request.body
-      : JSON.stringify(request.body)
-
   try {
+    const body = ['GET', 'HEAD'].includes(request.method)
+      ? undefined
+      : await readRequestBody(request)
     const upstream = await fetch(upstreamUrl, {
       method: request.method,
       headers,

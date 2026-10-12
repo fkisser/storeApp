@@ -2,15 +2,35 @@ import { STORE_SLUG } from '../config/store.js'
 
 export const storeApiPath = `/api/v1/stores/${encodeURIComponent(STORE_SLUG)}`
 
-export const requestStoreApi = async (path, { method = 'GET', cartToken, body } = {}) => {
+export const requestStoreApi = async (path, {
+  method = 'GET',
+  cartToken,
+  orderTrackingToken,
+  body,
+  formData,
+  query
+} = {}) => {
   const headers = { Accept: 'application/json' }
   if (cartToken) headers['X-Cart-Token'] = cartToken
+  if (orderTrackingToken) headers['X-Order-Tracking-Token'] = orderTrackingToken
   if (body !== undefined) headers['Content-Type'] = 'application/json'
 
-  const response = await fetch(`${storeApiPath}${path}`, {
+  const queryString = query
+    ? new URLSearchParams(Object.entries(query)
+      .filter(([, value]) => value !== undefined && value !== null)
+      .map(([key, value]) => [key, String(value)])).toString()
+    : ''
+  const querySeparator = path.includes('?') ? '&' : '?'
+  const url = `${storeApiPath}${path}${queryString ? `${querySeparator}${queryString}` : ''}`
+
+  const response = await fetch(url, {
     method,
     headers,
-    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    ...(formData !== undefined
+      ? { body: formData }
+      : body === undefined
+        ? {}
+        : { body: JSON.stringify(body) })
   })
 
   if (!response.ok) {

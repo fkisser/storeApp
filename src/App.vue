@@ -2,19 +2,34 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import ProductCard from './components/ProductCard.vue'
 import CheckoutPage from './components/CheckoutPage.vue'
+import MyOrdersPage from './components/MyOrdersPage.vue'
 import WelcomePage from './components/WelcomePage.vue'
 import storeInfo from './data/store-info.json'
 import { requestStoreApi } from './api/store.js'
 import { IS_HOME, STORE_SLUG } from './config/store.js'
 import { useVisitorCart } from './composables/useVisitorCart.js'
+import { useStoreOrders } from './composables/useStoreOrders.js'
 import { resolveStoreAssetUrl } from './utils/resolveStoreAssetUrl.js'
+import { isStoreCurrentlyOpen, normalizeWeeklyHours } from './utils/storeHours.js'
 import { blendColors, getContrastColor, getReadableColor } from './utils/contrast.js'
 const isHome = IS_HOME
+const LOADING_PRIMARY_COLOR = '#9ca3af'
+const LOADING_SECONDARY_COLOR = '#e5e7eb'
+const LOADING_BACKGROUND_COLOR = '#f3f4f6'
 const storeName = ref('')
 const storeNotFound = ref(false)
 const storeError = ref('')
 const bannerSlogan = ref('')
+const storePhone = ref('')
+const storeAddress = ref('')
+const storeTimezone = ref('')
+const storeAcceptingOrders = ref(null)
+const storeSupportsDelivery = ref(false)
+const weeklyHours = ref([])
+const hoursDialogVisible = ref(false)
+const currentClock = ref(Date.now())
 const branding = reactive({ primaryColor: '', secondaryColor: '', backgroundColor: '' })
+let storeClockInterval = null
 const settingsLoading = ref(true)
 watch(storeName, (name) => {
   if (typeof document !== 'undefined') document.title = name
@@ -42,18 +57,84 @@ const logoFailed = ref(false)
 const bannerImageUrl = ref('')
 const bannerImageFailed = ref(true)
 const storeSecondaryContrastColor = computed(() => getContrastColor(
-  branding.secondaryColor || storeInfo.branding.secondaryColor
+  settingsLoading.value
+    ? LOADING_SECONDARY_COLOR
+    : branding.secondaryColor || storeInfo.branding.secondaryColor
 ))
+const storeIsOpen = computed(() => storeAcceptingOrders.value === false
+  ? false
+  : isStoreCurrentlyOpen(weeklyHours.value, new Date(currentClock.value), storeTimezone.value))
+const whatsappUrl = computed(() => {
+  const number = storePhone.value.replace(/\D/g, '')
+  return number ? `https://wa.me/${number}` : ''
+})
+const mapsUrl = computed(() => storeAddress.value
+  ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(storeAddress.value)}`
+  : '')
+const ordersCount = computed(() => orders.value.length)
+const formatHoursTime = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+
+const readStoreContact = (settings) => {
+  const contact = settings.contact ?? settings.contactInfo ?? settings.businessInfo ?? {}
+  const phone = settings.whatsappNumber ?? settings.phoneNumber ?? settings.phone ??
+    contact.whatsappNumber ?? contact.phoneNumber ?? contact.phone ?? ''
+  const addressValue = settings.address ?? settings.addressLine ??
+    (typeof settings.location === 'string' ? settings.location : settings.location?.address) ??
+    contact.address ?? contact.location?.address ?? ''
+  const address = typeof addressValue === 'string'
+    ? addressValue
+    : addressValue?.formattedAddress ?? addressValue?.fullAddress ?? ''
+  const schedule = settings.openingHours ?? settings.businessHours ?? settings.hours ??
+    settings.schedule?.weeklyHours ?? settings.schedule?.weekly ?? settings.schedule
+  const fulfillmentOptions = settings.fulfillmentOptions ?? settings.fulfillment?.options ?? []
+  const listedDelivery = Array.isArray(fulfillmentOptions) && fulfillmentOptions.some((option) =>
+    (option.type ?? option.fulfillmentType) === 'DELIVERY' && option.enabled !== false
+  )
+  const deliveryValue = settings.deliveryEnabled ?? settings.hasDelivery ?? settings.deliveryAvailable ??
+    settings.delivery?.enabled ?? settings.fulfillment?.deliveryEnabled
+
+  storePhone.value = phone == null ? '' : String(phone).trim()
+  storeAddress.value = address.trim()
+  storeTimezone.value = settings.timezone ?? settings.timeZone ?? ''
+  storeAcceptingOrders.value = typeof settings.isAcceptingOrders === 'boolean'
+    ? settings.isAcceptingOrders
+    : null
+  storeSupportsDelivery.value = deliveryValue === true || listedDelivery
+  weeklyHours.value = normalizeWeeklyHours(schedule)
+}
+
+const loadDeliveryAvailability = async () => {
+  if (!cartToken.value) return
+  try {
+    const payload = await requestStoreApi('/carts/current/checkout-options', {
+      cartToken: cartToken.value
+    })
+    const options = payload?.fulfillmentOptions ?? payload?.data?.fulfillmentOptions
+    if (Array.isArray(options)) {
+      storeSupportsDelivery.value = options.some((option) =>
+        option.type === 'DELIVERY' && option.enabled === true
+      )
+    }
+  } catch {
+    // Keep the availability reported by store settings if the cart options are temporarily unavailable.
+  }
+}
 const storeThemeStyle = computed(() => {
-  const primaryColor = branding.primaryColor || storeInfo.branding.primaryColor
-  const secondaryColor = branding.secondaryColor || storeInfo.branding.secondaryColor
+  const primaryColor = settingsLoading.value
+    ? LOADING_PRIMARY_COLOR
+    : branding.primaryColor || storeInfo.branding.primaryColor
+  const secondaryColor = settingsLoading.value
+    ? LOADING_SECONDARY_COLOR
+    : branding.secondaryColor || storeInfo.branding.secondaryColor
   const hoverColor = `color-mix(in srgb, ${primaryColor} 86%, #000)`
   const activeColor = `color-mix(in srgb, ${primaryColor} 76%, #000)`
   const secondaryHoverColor = `color-mix(in srgb, ${secondaryColor} 86%, #000)`
   const secondaryActiveColor = `color-mix(in srgb, ${secondaryColor} 76%, #000)`
   const contrastColor = getContrastColor(primaryColor)
   const secondaryContrastColor = getContrastColor(secondaryColor)
-  const backgroundColor = branding.backgroundColor || storeInfo.branding.backgroundColor
+  const backgroundColor = settingsLoading.value
+    ? LOADING_BACKGROUND_COLOR
+    : branding.backgroundColor || storeInfo.branding.backgroundColor
   const toolsSurfaceColor = blendColors('#ffffff', backgroundColor, 0.8)
   const bannerBackgroundColor = blendColors(primaryColor, backgroundColor, 0.25)
 
@@ -152,7 +233,7 @@ const PRODUCTS_PAGE_SIZE = 20
 let productsObserver = null
 
 const {
-  addToCart,
+  addToCart: addCartItem,
   cart,
   cartError,
   cartItems,
@@ -181,8 +262,29 @@ const {
   totalAmount,
   totalItems,
   updateCart,
-  updateProductQuantity: updateProductQty
+  updateProductQuantity: updateCartProductQuantity
 } = useVisitorCart({ products })
+const addToCart = (product) => {
+  if (storeIsOpen.value === false) return
+  addCartItem(product)
+}
+const updateProductQty = (product, delta) => {
+  if (storeIsOpen.value === false) return
+  updateCartProductQuantity(product, delta)
+}
+const {
+  addOrder: saveStoreOrder,
+  orders,
+  loading: ordersLoading,
+  orderErrors,
+  refreshAll: refreshAllOrders,
+  refreshOrder,
+  submitTransferProof,
+  transferErrors,
+  transferSuccess,
+  uploadingProofs
+} = useStoreOrders()
+const myOrdersOpen = ref(false)
 
 watch(loadMoreSentinel, (sentinel) => {
   if (sentinel) productsObserver?.observe(sentinel)
@@ -269,6 +371,7 @@ const loadProducts = async ({ append = false } = {}) => {
       const theme = settings.theme ?? {}
       storeName.value = settings.name ?? storeInfo.ecommerceName
       bannerSlogan.value = settings.description ?? storeInfo.bannerSlogan
+      readStoreContact(settings)
       branding.primaryColor = theme.primaryColor ?? storeInfo.branding.primaryColor
       branding.secondaryColor = theme.secondaryColor ?? storeInfo.branding.secondaryColor
       branding.backgroundColor = theme.backgroundColor ?? storeInfo.branding.backgroundColor
@@ -329,6 +432,9 @@ const cartOpen = ref(false)
 const checkoutOpen = ref(false)
 const pendingRemoval = ref(null)
 const removeDialogVisible = ref(false)
+watch(storeIsOpen, (isOpen) => {
+  if (isOpen === false) cartOpen.value = false
+})
 const sortOptions = [
   { value: 'name-asc', label: 'Nombre A-Z', icon: 'pi pi-sort-alpha-up' },
   { value: 'name-desc', label: 'Nombre Z-A', icon: 'pi pi-sort-alpha-down' },
@@ -407,6 +513,9 @@ const retryStore = async () => {
 
 onMounted(async () => {
   if (isHome) return
+  storeClockInterval = window.setInterval(() => {
+    currentClock.value = Date.now()
+  }, 60_000)
 
   if ('IntersectionObserver' in window) {
     productsObserver = new IntersectionObserver((entries) => {
@@ -418,11 +527,15 @@ onMounted(async () => {
   }
 
   await loadProducts()
-  if (!storeNotFound.value && !storeError.value) await initializeCart()
+  if (!storeNotFound.value && !storeError.value) {
+    await initializeCart()
+    await loadDeliveryAvailability()
+  }
 })
 
 onBeforeUnmount(() => {
   productsObserver?.disconnect()
+  if (storeClockInterval) window.clearInterval(storeClockInterval)
 })
 
 const loadNextProducts = () => loadProducts({ append: true })
@@ -447,7 +560,7 @@ const cancelRemoval = () => {
 }
 
 const beginCheckout = async () => {
-  if (cartItems.value.length === 0 || cartLoading.value) return
+  if (storeIsOpen.value === false || cartItems.value.length === 0 || cartLoading.value) return
 
   await flushCartRequests()
   if (cartError.value) return
@@ -471,6 +584,12 @@ const returnToStore = () => {
   }
 
   checkoutOpen.value = false
+  myOrdersOpen.value = false
+}
+
+const openMyOrders = () => {
+  cartOpen.value = false
+  myOrdersOpen.value = true
 }
 
 </script>
@@ -514,11 +633,26 @@ const returnToStore = () => {
         :total-amount="totalAmount"
         :currency="cartTotals.currency"
         :store-name="storeName"
+        :save-order="saveStoreOrder"
         @back="returnToStore"
         @complete="clearCompletedCart"
       />
+      <MyOrdersPage
+        v-else-if="myOrdersOpen"
+        :orders="orders"
+        :loading="ordersLoading"
+        :order-errors="orderErrors"
+        :transfer-errors="transferErrors"
+        :transfer-success="transferSuccess"
+        :uploading-proofs="uploadingProofs"
+        :refresh-all="refreshAllOrders"
+        :refresh-order="refreshOrder"
+        :submit-transfer-proof="submitTransferProof"
+        :store-name="storeName"
+        @back="myOrdersOpen = false"
+      />
       <template v-else>
-      <section id="banner">
+      <section id="banner" :class="{ 'store-loading-state': settingsLoading }">
         <template v-if="settingsLoading || storeNotFound">
           <div class="identity identity-skeleton" aria-hidden="true">
             <Skeleton shape="circle" size="6.25rem" />
@@ -538,8 +672,76 @@ const returnToStore = () => {
             <h1>{{ storeName }}</h1>
           </div>
           <h3 class="store-slogan">{{ bannerSlogan }}</h3>
+          <span v-if="storeSupportsDelivery" class="delivery-badge">
+            <i class="pi pi-truck" aria-hidden="true"></i>
+            Delivery
+          </span>
+          <div class="store-banner-links">
+            <a
+              v-if="whatsappUrl"
+              class="banner-action"
+              :href="whatsappUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Contactar por WhatsApp"
+              title="WhatsApp"
+            >
+              <i class="pi pi-whatsapp" aria-hidden="true"></i>
+              <span>WhatsApp</span>
+            </a>
+            <a
+              v-if="mapsUrl"
+              class="banner-action"
+              :href="mapsUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Ver dirección en Maps"
+              title="Ubicación"
+            >
+              <i class="pi pi-map-marker" aria-hidden="true"></i>
+              <span>Cómo llegar</span>
+            </a>
+            <Button
+              type="button"
+              class="banner-action"
+              text
+              icon="pi pi-clock"
+              label="Horarios"
+              aria-label="Ver horarios de atención"
+              @click="hoursDialogVisible = true"
+            />
+          </div>
+          <p v-if="storeIsOpen === false" class="store-closed-message" role="status">
+            La tienda se encuentra cerrada en este momento.
+          </p>
+          <Button
+            v-if="storeIsOpen === false && ordersCount > 0"
+            type="button"
+            class="closed-orders-button"
+            icon="pi pi-receipt"
+            :label="`Mis pedidos (${ordersCount})`"
+            @click="openMyOrders"
+          />
         </template>
       </section>
+
+      <Dialog
+        v-model:visible="hoursDialogVisible"
+        modal
+        header="Horarios de atención"
+        :style="{ width: 'min(92vw, 28rem)' }"
+      >
+        <div class="weekly-hours-list">
+          <div v-if="!weeklyHours.length" class="weekly-hours-empty">
+            La tienda todavía no publicó sus horarios.
+          </div>
+          <div v-for="day in weeklyHours" :key="day.dayIndex" class="weekly-hours-row">
+            <strong>{{ day.label }}</strong>
+            <span v-if="day.closed">Cerrado</span>
+            <span v-else>{{ day.ranges.map((range) => `${formatHoursTime(range.start)} a ${formatHoursTime(range.end)}`).join(' / ') }}</span>
+          </div>
+        </div>
+      </Dialog>
       
       <section id="tools">
         <div class="toolbar">
@@ -610,7 +812,7 @@ const returnToStore = () => {
           :key="product.id"
           :product="product"
           :quantity-label="formatQuantityLabel(product)"
-          :subtotal="product.pricePerType * getProductQuantity(product)"
+          :store-closed="storeIsOpen === false"
           :busy="cartLoading"
           :in-cart="Boolean(cart.find((item) => item.id === product.id))"
           :decrease-removes-item="getCartQuantity(product.id) > 0 && getCartQuantity(product.id) <= product.step"
@@ -643,9 +845,10 @@ const returnToStore = () => {
       </Dialog>
 
       <Button
-        v-if="!storeNotFound && !settingsLoading"
+        v-if="!storeNotFound && !settingsLoading && storeIsOpen !== false"
         type="button"
         class="cart-fab"
+        :class="{ 'cart-fab-with-orders': ordersCount > 0 }"
         icon="pi pi-shopping-cart"
         :badge="String(totalItems)"
         severity="secondary"
@@ -657,8 +860,21 @@ const returnToStore = () => {
         title="Carrito"
       />
 
+      <Button
+        v-if="!storeNotFound && !settingsLoading && ordersCount > 0"
+        type="button"
+        class="orders-fab"
+        icon="pi pi-receipt"
+        :badge="String(ordersCount)"
+        severity="secondary"
+        badge-severity="primary"
+        aria-label="Abrir mis pedidos"
+        title="Mis pedidos"
+        @click="openMyOrders"
+      />
+
       <Drawer
-        v-if="!storeNotFound && !settingsLoading"
+        v-if="!storeNotFound && !settingsLoading && storeIsOpen !== false"
         v-model:visible="cartOpen"
         position="right"
         class="cart-drawer"
@@ -816,6 +1032,103 @@ const returnToStore = () => {
     color: var(--banner-text-color);
   }
 
+  .delivery-badge {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--primary-color);
+    border-radius: 6px;
+    background: var(--primary-color);
+    color: var(--p-primary-contrast-color);
+    font-size: 0.82rem;
+    font-weight: 800;
+  }
+
+  .store-banner-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    margin-top: 1rem;
+  }
+
+  .banner-action {
+    display: inline-flex;
+    min-height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 0.45rem 0.7rem;
+    border: 1px solid var(--secondary-color);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--secondary-color) 92%, transparent);
+    color: var(--secondary-contrast-color);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .banner-action:hover {
+    background: var(--secondary-color);
+    color: var(--secondary-contrast-color);
+  }
+
+  .store-banner-links .banner-action.p-button.p-button-text:not(:disabled):hover {
+    border-color: var(--secondary-color);
+    background: var(--secondary-color);
+    color: var(--secondary-contrast-color);
+  }
+
+  .banner-action:focus-visible {
+    outline: 3px solid var(--p-focus-ring-color);
+    outline-offset: 2px;
+  }
+
+  .store-closed-message {
+    margin: 0.8rem 0 0;
+    padding: 0.5rem 0.8rem;
+    border: 1px solid var(--primary-color);
+    border-radius: 6px;
+    background: var(--primary-color);
+    color: var(--p-primary-contrast-color);
+    font-weight: 800;
+  }
+
+  .closed-orders-button {
+    margin-top: 0.65rem;
+  }
+
+  .weekly-hours-list {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .weekly-hours-empty {
+    color: #536157;
+    line-height: 1.5;
+  }
+
+  .weekly-hours-row {
+    display: grid;
+    grid-template-columns: minmax(7rem, 1fr) minmax(0, 1.5fr);
+    gap: 0.8rem;
+    padding-bottom: 0.65rem;
+    border-bottom: 1px solid #e1e6e1;
+    font-size: 0.9rem;
+  }
+
+  .weekly-hours-row span {
+    color: #536157;
+    text-align: right;
+  }
+
   .store-slogan {
     margin: 0.75rem 0 0;
     color: inherit;
@@ -836,6 +1149,17 @@ const returnToStore = () => {
   .banner-skeleton-slogan {
     margin-top: 1rem;
   }
+
+  #banner.store-loading-state :deep(.p-skeleton),
+  .product-skeleton-grid :deep(.p-skeleton) {
+    background: #e5e7eb;
+  }
+
+  #banner.store-loading-state :deep(.p-skeleton)::after,
+  .product-skeleton-grid :deep(.p-skeleton)::after {
+    background: linear-gradient(90deg, transparent, #f3f4f6, transparent);
+  }
+
   .logo {
     display: flex;
     width: 100px;
@@ -850,7 +1174,9 @@ const returnToStore = () => {
   .logo-fallback {
     align-items: center;
     justify-content: center;
-    color: var(--primary-text-color);
+    border-color: var(--primary-color);
+    background-color: #f3f4f6;
+    color: #6b7280;
   }
 
   .logo-fallback i {
@@ -861,7 +1187,7 @@ const returnToStore = () => {
     position: absolute;
     top: 50%;
     right: clamp(1rem, 8vw, 7rem);
-    color: rgba(255, 255, 255, 0.2);
+    color: rgba(107, 114, 128, 0.3);
     pointer-events: none;
     transform: translateY(-50%);
   }
@@ -1029,6 +1355,9 @@ const returnToStore = () => {
     flex-direction: column;
     overflow: hidden;
     border-radius: 20px;
+    border: 1px solid #e5e7eb;
+    background: #f9fafb;
+    box-shadow: none;
   }
 
   .skeleton-product-card :deep(.p-card-body) {
@@ -1109,7 +1438,8 @@ const returnToStore = () => {
     pointer-events: none;
   }
 
-  .cart-fab {
+  .cart-fab,
+  .orders-fab {
     position: fixed;
     right: calc(max(var(--content-gutter), (100vw - var(--content-max-width)) / 2) + 0.5rem);
     top: 1.5rem;
@@ -1123,13 +1453,19 @@ const returnToStore = () => {
     box-shadow: 0 18px 30px rgba(0, 0, 0, 0.18);
   }
 
-  .cart-fab :deep(.p-button-icon) {
+  .orders-fab {
+    right: calc(max(var(--content-gutter), (100vw - var(--content-max-width)) / 2) + 5.25rem);
+  }
+
+  .cart-fab :deep(.p-button-icon),
+  .orders-fab :deep(.p-button-icon) {
     margin: 0;
     font-size: 1.8rem;
     color: var(--primary-on-secondary-color) !important;
   }
 
-  .cart-fab :deep(.p-badge) {
+  .cart-fab :deep(.p-badge),
+  .orders-fab :deep(.p-badge) {
     position: absolute;
     top: 0.25rem;
     right: 0.25rem;
@@ -1349,6 +1685,21 @@ const returnToStore = () => {
       right: 1rem;
       bottom: 1rem;
       top: auto;
+    }
+
+    .orders-fab {
+      right: 1rem;
+      bottom: 1rem;
+      top: auto;
+    }
+
+    .cart-fab.cart-fab-with-orders {
+      right: 6.25rem;
+    }
+
+    .delivery-badge {
+      top: 0.75rem;
+      left: 0.75rem;
     }
   }
 
