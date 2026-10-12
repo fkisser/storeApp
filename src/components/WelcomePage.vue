@@ -93,11 +93,12 @@
 .welcome-hero {
   position: relative;
   display: flex;
-  min-height: min(62vh, 680px);
+  min-height: min(80vh, 680px);
   align-items: center;
   overflow: hidden;
   background: #32463c;
   color: #fff;
+  border-radius: 20px;
 }
 
 .hero-photo,
@@ -142,7 +143,7 @@
 
 .hero-actions :deep(.p-button) {
   min-height: 3.1rem;
-  border-radius: 3px;
+  border-radius: 20px;
   font-size: 0.86rem;
   font-weight: 700;
 }
