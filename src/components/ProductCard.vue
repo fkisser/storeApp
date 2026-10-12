@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   product: { type: Object, required: true },
@@ -26,6 +26,17 @@ watch(() => [props.inCart, props.busy], ([inCart, busy]) => {
 watch(() => props.product.image, () => {
   imageFailed.value = false
 })
+
+const unitPriceLabel = computed(() =>
+  `$${props.product.pricePerType.toFixed(2)} / ${props.product.productType === 'weight' ? 'kg' : 'u'}`)
+
+const addAriaLabel = computed(() => props.busy
+  ? 'Procesando producto'
+  : props.inCart
+    ? `Añadido ${props.product.name}`
+    : props.product.isSoldOut
+      ? `Agotado ${props.product.name}`
+      : `Añadir ${props.product.name}`)
 </script>
 
 <template>
@@ -42,15 +53,25 @@ watch(() => props.product.image, () => {
       <div v-else class="product-image product-image-fallback" role="img" :aria-label="`Imagen de ${product.name} no disponible`">
         <i :class="product.imageFallback === 'pastry' ? 'pi pi-sparkles' : product.imageFallback === 'accessory' ? 'pi pi-gift' : 'pi pi-shopping-bag'" aria-hidden="true"></i>
       </div>
+      <Tag :value="product.category" severity="primary" rounded class="category-badge" />
+      <small class="product-price-base image-price">{{ unitPriceLabel }}</small>
+      <Button
+        v-if="layout !== 'list'"
+        class="add-fab"
+        type="button"
+        rounded
+        :disabled="busy || inCart || unavailable"
+        :aria-label="addAriaLabel"
+        :icon="busy ? undefined : displayInCart ? 'pi pi-check' : 'pi pi-cart-plus'"
+        :loading="busy"
+        @click="$emit('add-to-cart')"
+      />
     </template>
 
     <template #content>
       <div class="product-body">
       <div class="meta-row">
-        <Tag :value="product.category" severity="primary" rounded />
-        <small class="product-price-base">
-          ${{ product.pricePerType.toFixed(2) }} / {{ product.productType === 'weight' ? 'kg' : 'u' }}
-        </small>
+        <small class="product-price-base">{{ unitPriceLabel }}</small>
       </div>
 
       <h3>{{ product.name }}</h3>
@@ -189,7 +210,7 @@ watch(() => props.product.image, () => {
   }
 
   .product-image-fallback i {
-    color: var(--primary-color);
+    color: var(--primary-text-color);
     font-size: 3.5rem;
   }
 
@@ -202,7 +223,7 @@ watch(() => props.product.image, () => {
   }
 
   .meta-row {
-    display: flex;
+    display: none;
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
@@ -215,6 +236,18 @@ watch(() => props.product.image, () => {
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.02em;
+  }
+
+  .image-price {
+    position: absolute;
+    left: 0.6rem;
+    bottom: 0.6rem;
+    z-index: 1;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    background: var(--secondary-color);
+    color: var(--secondary-contrast-color);
+    font-size: 0.8rem;
   }
 
   .product-subtotal {
@@ -232,9 +265,11 @@ watch(() => props.product.image, () => {
 
   .product-description {
     margin: 0;
+    max-height: 3em;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     color: #4b5563;
     line-height: 1.5;
-    min-height: 48px;
   }
 
   .product-quantity {
@@ -252,16 +287,48 @@ watch(() => props.product.image, () => {
   .product-quantity :deep(.p-button) {
     width: 2rem;
     height: 2rem;
-    color: var(--primary-color);
+    color: var(--primary-text-color);
   }
 
   .product-quantity :deep(.p-button:focus-visible) {
     box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--primary-color) 26%, transparent);
   }
 
-  .meta-row :deep(.p-tag) {
-    flex-shrink: 0;
+  .category-badge {
+    position: absolute;
+    top: 0.6rem;
+    right: 0.6rem;
+    z-index: 1;
     font-size: 0.72rem;
+  }
+
+  .product-card .add-fab.p-button {
+    position: absolute;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.5rem;
+    height: 3.5rem;
+    flex: none;
+    aspect-ratio: 1 / 1;
+    padding: 0;
+    border-radius: 50%;
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
+  }
+
+  .add-fab :deep(.p-button-icon) {
+    font-size: 1.4rem;
+  }
+
+  .product-card:not(.is-list) .product-footer :deep(.add-product-button) {
+    display: none;
+  }
+
+  .product-card:not(.is-list) .product-footer {
+    justify-content: center;
   }
 
   .product-footer {
@@ -279,7 +346,7 @@ watch(() => props.product.image, () => {
     min-height: 2.9rem;
     border-radius: 8px;
     background: var(--p-primary-color);
-    color: #fff;
+    color: var(--p-primary-contrast-color);
     box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
     transition: transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
   }
@@ -337,10 +404,93 @@ watch(() => props.product.image, () => {
     padding: 1rem 1.2rem;
   }
 
-  @media (max-width: 500px) {
-    .product-description {
+  @media (max-width: 900px) {
+    .product-card:not(.is-list) .product-body {
+      justify-content: center;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.7rem;
+      text-align: center;
+    }
+
+    .product-card:not(.is-list) .category-badge {
+      top: 0.4rem;
+      right: 0.4rem;
+      padding: 0.1rem 0.45rem;
+      font-size: 0.6rem;
+    }
+
+    .product-card:not(.is-list) .add-fab.p-button {
+      right: 0.5rem;
+      bottom: 0.5rem;
+      width: 2.5rem;
+      height: 2.5rem;
+    }
+
+    .product-card:not(.is-list) .add-fab :deep(.p-button-icon) {
+      font-size: 1.1rem;
+    }
+
+    .product-card:not(.is-list) .image-price {
+      left: 0.4rem;
+      bottom: 0.4rem;
+      padding: 0.15rem 0.45rem;
+      font-size: 0.65rem;
+    }
+
+    .product-card:not(.is-list) .product-description {
+      font-size: 0.8rem;
+      line-height: 1.4;
+      max-height: 2.8em;
+    }
+
+    .product-card:not(.is-list) .meta-row {
+      justify-content: center;
+    }
+
+    .product-card:not(.is-list) .product-footer {
+      justify-content: center;
+      margin-top: 0;
+    }
+
+    .product-card:not(.is-list) .product-footer :deep(.add-product-button) {
       display: none;
     }
+
+    .product-card:not(.is-list) h3 {
+      font-size: 1rem;
+      overflow-wrap: anywhere;
+    }
+
+    .product-card:not(.is-list) .product-quantity {
+      width: 100%;
+      gap: 0.3rem;
+      padding: 0.35rem 0.4rem;
+      font-size: 0.85rem;
+    }
+
+    .product-card:not(.is-list) .product-quantity :deep(.p-button) {
+      flex: 0 0 auto;
+      width: 1.8rem;
+      height: 1.8rem;
+    }
+
+    .product-card:not(.is-list) .product-footer {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.5rem;
+    }
+
+    .product-card:not(.is-list) .product-subtotal {
+      font-size: 1.2rem;
+    }
+  }
+
+  @media (max-width: 499px) {
+    .product-card.is-list .meta-row {
+      display: flex;
+    }
+
     .product-card.is-list .product-image {
       display: none;
     }

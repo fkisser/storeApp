@@ -8,6 +8,7 @@ import { requestStoreApi } from './api/store.js'
 import { IS_HOME, STORE_SLUG } from './config/store.js'
 import { useVisitorCart } from './composables/useVisitorCart.js'
 import { resolveStoreAssetUrl } from './utils/resolveStoreAssetUrl.js'
+import { blendColors, getContrastColor, getReadableColor } from './utils/contrast.js'
 const isHome = IS_HOME
 const storeName = ref('')
 const storeNotFound = ref(false)
@@ -40,24 +41,6 @@ const logoUrl = ref('')
 const logoFailed = ref(false)
 const bannerImageUrl = ref('')
 const bannerImageFailed = ref(true)
-const getContrastColor = (color) => {
-  const hex = color.replace('#', '')
-  const normalizedHex = hex.length === 3
-    ? hex.split('').map((channel) => channel + channel).join('')
-    : hex
-
-  if (!/^[\da-f]{6}$/i.test(normalizedHex)) return '#fff'
-
-  const channels = normalizedHex.match(/[\da-f]{2}/gi).map((channel) => {
-    const value = Number.parseInt(channel, 16) / 255
-    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
-  })
-  const luminance = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
-  const whiteContrast = 1.05 / (luminance + 0.05)
-  const darkTextLuminance = 0.0331
-  const darkContrast = (luminance + 0.05) / (darkTextLuminance + 0.05)
-  return darkContrast >= whiteContrast ? '#333333' : '#fff'
-}
 const storeSecondaryContrastColor = computed(() => getContrastColor(
   branding.secondaryColor || storeInfo.branding.secondaryColor
 ))
@@ -70,15 +53,21 @@ const storeThemeStyle = computed(() => {
   const secondaryActiveColor = `color-mix(in srgb, ${secondaryColor} 76%, #000)`
   const contrastColor = getContrastColor(primaryColor)
   const secondaryContrastColor = getContrastColor(secondaryColor)
+  const backgroundColor = branding.backgroundColor || storeInfo.branding.backgroundColor
+  const toolsSurfaceColor = blendColors('#ffffff', backgroundColor, 0.8)
+  const bannerBackgroundColor = blendColors(primaryColor, backgroundColor, 0.25)
 
   return {
     '--primary-color': primaryColor,
     '--secondary-color': secondaryColor,
     '--secondary-contrast-color': secondaryContrastColor,
-    '--background-color': branding.backgroundColor || storeInfo.branding.backgroundColor,
+    '--primary-text-color': getReadableColor(primaryColor, ['#ffffff', toolsSurfaceColor]),
+    '--primary-on-background-color': getReadableColor(primaryColor, [backgroundColor]),
+    '--primary-on-secondary-color': getReadableColor(primaryColor, [secondaryColor]),
+    '--background-color': backgroundColor,
     '--banner-image': bannerImageUrl.value ? `url(${bannerImageUrl.value})` : 'none',
     '--banner-overlay': `color-mix(in srgb, ${primaryColor} 25%, transparent)`,
-    '--banner-text-color': contrastColor,
+    '--banner-text-color': bannerImageUrl.value ? contrastColor : getContrastColor(bannerBackgroundColor),
     '--p-primary-color': primaryColor,
     '--p-primary-hover-color': hoverColor,
     '--p-primary-active-color': activeColor,
@@ -331,11 +320,11 @@ const categories = computed(() => {
   const names = categoryData.value.length
     ? categoryData.value.map((category) => category.name).filter(Boolean)
     : products.filter((product) => product.isVisible).map((product) => product.category)
-  return ['Todas', ...new Set(names)]
+  return [...new Set(names)]
 })
 
 const search = ref('')
-const selectedCategory = ref('Todas')
+const selectedCategories = ref([])
 const layout = ref('cards')
 const isListLayout = computed({
   get: () => layout.value === 'list',
@@ -348,9 +337,14 @@ const removeDialogVisible = ref(false)
 const viewSwitchPt = {
   root: {
     style: {
+      '--p-toggleswitch-background': 'var(--primary-color)',
+      '--p-toggleswitch-hover-background': 'var(--primary-color)',
+      '--p-toggleswitch-border-color': 'var(--primary-color)',
+      '--p-toggleswitch-hover-border-color': 'var(--primary-color)',
       '--p-toggleswitch-checked-background': 'var(--primary-color)',
       '--p-toggleswitch-checked-hover-background': 'var(--primary-color)',
-      '--p-toggleswitch-checked-border-color': 'var(--primary-color)'
+      '--p-toggleswitch-checked-border-color': 'var(--primary-color)',
+      '--p-toggleswitch-checked-hover-border-color': 'var(--primary-color)'
     }
   }
 }
@@ -377,14 +371,33 @@ const sortSelectPt = computed(() => {
       : undefined
   }
 })
-const hoveredCategory = ref('')
+const categorySelectPt = computed(() => {
+  const primaryColor = branding.primaryColor || storeInfo.branding.primaryColor
+
+  return {
+    ...sortSelectPt.value,
+    pcOptionCheckbox: {
+      root: {
+        style: {
+          '--p-checkbox-background': '#fff',
+          '--p-checkbox-checked-background': '#fff',
+          '--p-checkbox-checked-hover-background': '#fff',
+          '--p-checkbox-checked-border-color': primaryColor,
+          '--p-checkbox-checked-hover-border-color': primaryColor,
+          '--p-checkbox-icon-checked-color': primaryColor,
+          '--p-checkbox-icon-checked-hover-color': primaryColor
+        }
+      }
+    }
+  }
+})
 
 const filteredProducts = computed(() => {
   const term = search.value.trim().toLocaleLowerCase('es')
 
   return products.filter((product) => {
     const matchesCategory =
-      selectedCategory.value === 'Todas' || product.category === selectedCategory.value
+      !selectedCategories.value.length || selectedCategories.value.includes(product.category)
     const matchesSearch =
       !term ||
       product.name.toLocaleLowerCase('es').includes(term) ||
@@ -479,10 +492,6 @@ const returnToStore = () => {
   checkoutOpen.value = false
 }
 
-const filterByCategory = (category) => {
-  selectedCategory.value = category
-}
-
 </script>
 
 <template>
@@ -556,9 +565,9 @@ const filterByCategory = (category) => {
           <InputText class="toolbar-search" v-model="search" type="search" placeholder="Buscar productos..." aria-label="Buscar productos" />
           <div class="toolbar-selectors">
             <div class="view-select" aria-label="Elegir tipo de vista">
-              <span class="view-mode-label" :class="{ 'is-active': !isListLayout }">Tarjetas</span>
+              <button type="button" class="view-mode-label" :class="{ 'is-active': !isListLayout }" :aria-pressed="!isListLayout" @click="isListLayout = false">Tarjetas</button>
               <ToggleSwitch v-model="isListLayout" aria-label="Alternar entre vista de tarjetas y lista" :pt="viewSwitchPt" />
-              <span class="view-mode-label" :class="{ 'is-active': isListLayout }">Lista</span>
+              <button type="button" class="view-mode-label" :class="{ 'is-active': isListLayout }" :aria-pressed="isListLayout" @click="isListLayout = true">Lista</button>
             </div>
             <label class="sort-select">
               <span>Ordenar</span>
@@ -574,26 +583,19 @@ const filterByCategory = (category) => {
             </label>
           </div>
         </div>
-
-        <div class="categories">
-          <h3>Categorías</h3>
-          <ul v-if="productsLoading || storeNotFound" class="category-skeletons" aria-hidden="true">
-            <li v-for="placeholder in 4" :key="placeholder"><Skeleton width="5rem" height="2rem" /></li>
-          </ul>
-          <div v-else class="category-options">
-            <Button
-              v-for="category in categories"
-              :key="category"
-              :label="category"
-              :severity="selectedCategory === category ? 'primary' : 'secondary'"
-              :outlined="selectedCategory !== category && hoveredCategory !== category"
-              rounded
-              @mouseenter="hoveredCategory = category"
-              @mouseleave="hoveredCategory = ''"
-              @click="filterByCategory(category)"
-            />
-          </div>
-        </div>
+        <label class="sort-select category-select">
+          <span>Categoría</span>
+          <MultiSelect
+            v-model="selectedCategories"
+            :options="categories"
+            :disabled="productsLoading || storeNotFound"
+            placeholder="Todas"
+            display="chip"
+            :show-toggle-all="false"
+            aria-label="Filtrar por categoría"
+            :pt="categorySelectPt"
+          />
+        </label>
       </section>
   
       <section id="products" :class="layout === 'list' ? 'products-list' : 'products-grid'">
@@ -873,7 +875,7 @@ const filterByCategory = (category) => {
   .logo-fallback {
     align-items: center;
     justify-content: center;
-    color: var(--primary-color);
+    color: var(--primary-text-color);
   }
 
   .logo-fallback i {
@@ -914,7 +916,17 @@ const filterByCategory = (category) => {
     width: 100%;
     min-width: 0;
     min-height: 3.25rem;
+    border-color: var(--primary-color);
     box-shadow: 0 6px 18px color-mix(in srgb, var(--primary-color) 18%, transparent);
+  }
+
+  #tools :deep(.toolbar-search.p-inputtext::placeholder) {
+    color: var(--primary-text-color);
+    opacity: 1;
+  }
+
+  #tools :deep(.toolbar-search.p-inputtext:enabled:hover) {
+    border-color: var(--secondary-color);
   }
 
   #tools :deep(.toolbar-search.p-inputtext:enabled:focus) {
@@ -938,18 +950,23 @@ const filterByCategory = (category) => {
     gap: 0.75rem;
     padding: 0 0.6rem;
     font-weight: 500;
-    color: var(--primary-color);
+    color: var(--primary-text-color);
     white-space: nowrap;
   }
 
   .view-mode-label {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    cursor: pointer;
     font-size: 0.9rem;
     white-space: nowrap;
-    color: color-mix(in srgb, var(--primary-color) 48%, #64748b);
+    color: color-mix(in srgb, var(--primary-text-color) 75%, #4b5563);
   }
 
   .view-mode-label.is-active {
-    color: var(--primary-color);
+    color: var(--primary-text-color);
     font-weight: 600;
   }
 
@@ -964,7 +981,7 @@ const filterByCategory = (category) => {
     align-items: center;
     align-content: center;
     gap: 0.65rem;
-    color: var(--primary-color);
+    color: var(--primary-text-color);
     font-size: 0.9rem;
     font-weight: 500;
   }
@@ -975,12 +992,46 @@ const filterByCategory = (category) => {
     height: 3.25rem;
     border-color: color-mix(in srgb, var(--primary-color) 48%, #fff);
     background: #fff;
-    color: var(--primary-color);
+    color: var(--primary-text-color);
+  }
+
+  .category-select {
+    width: 100%;
+    padding: 0;
+  }
+
+  .category-select :deep(.p-multiselect) {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 3.25rem;
+    border-color: color-mix(in srgb, var(--primary-color) 48%, #fff);
+    background: #fff;
+    color: var(--primary-text-color);
+  }
+
+  .category-select :deep(.p-multiselect-label) {
+    display: flex;
+    flex-wrap: wrap;
+    height: 100%;
+    align-items: center;
+    padding-block: 0;
+    gap: 0.35rem;
+  }
+
+  .sort-select :deep(.p-select),
+  .sort-select :deep(.p-multiselect),
+  .sort-select :deep(.p-select-label),
+  .sort-select :deep(.p-multiselect-label),
+  .sort-select :deep(.p-multiselect-label .p-chip),
+  .sort-value {
+    font-size: 0.9rem;
   }
 
   .sort-select :deep(.p-select-label),
-  .sort-select :deep(.p-select-dropdown) {
-    color: var(--primary-color);
+  .sort-select :deep(.p-select-dropdown),
+  .sort-select :deep(.p-multiselect-label),
+  .sort-select :deep(.p-multiselect-dropdown) {
+    color: var(--primary-text-color);
   }
 
   .sort-select :deep(.p-select-label) {
@@ -990,7 +1041,13 @@ const filterByCategory = (category) => {
     padding-block: 0;
   }
 
-  .sort-select :deep(.p-select:not(.p-disabled).p-focus) {
+  .sort-select :deep(.p-select:not(.p-disabled):hover),
+  .sort-select :deep(.p-multiselect:not(.p-disabled):hover) {
+    border-color: var(--secondary-color);
+  }
+
+  .sort-select :deep(.p-select:not(.p-disabled).p-focus),
+  .sort-select :deep(.p-multiselect:not(.p-disabled).p-focus) {
     border-color: var(--primary-color);
     box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--primary-color) 24%, transparent);
   }
@@ -1000,29 +1057,6 @@ const filterByCategory = (category) => {
     align-items: center;
     gap: 0.55rem;
     white-space: nowrap;
-  }
-
-  .categories {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.7rem;
-  }
-
-  .categories h3 {
-    margin: 0;
-    color: var(--primary-color);
-  }
-
-  .category-options {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 0.7rem;
-  }
-
-  .category-options :deep(.p-button) {
-    min-height: 2.5rem;
   }
 
   #products {
@@ -1174,7 +1208,7 @@ const filterByCategory = (category) => {
   .cart-fab :deep(.p-button-icon) {
     margin: 0;
     font-size: 1.8rem;
-    color: var(--primary-color) !important;
+    color: var(--primary-on-secondary-color) !important;
   }
 
   .cart-fab :deep(.p-badge) {
@@ -1223,13 +1257,13 @@ const filterByCategory = (category) => {
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-size: 0.7rem;
-    color: var(--primary-color);
+    color: var(--primary-on-background-color);
   }
 
   .cart-header h3 {
     margin: 0;
     font-size: 1.5rem;
-    color: var(--primary-color);
+    color: var(--primary-on-background-color);
   }
 
   .cart-empty-state {
@@ -1310,14 +1344,19 @@ const filterByCategory = (category) => {
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
-    max-width: 150px;
+    width: 100%;
     padding: 0.4rem 0.55rem;
     border-radius: 999px;
     background: white;
     border: 1px solid color-mix(in srgb, var(--primary-color) 30%, transparent);
+    color: var(--primary-text-color);
   }
 
   .cart-item-controls :deep(.p-button) {
+    --p-button-text-primary-color: var(--primary-text-color);
+    --p-button-text-primary-hover-background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+    --p-button-text-primary-active-background: color-mix(in srgb, var(--primary-color) 20%, transparent);
+    color: var(--primary-text-color);
     width: 1.8rem;
     height: 1.8rem;
   }
@@ -1343,7 +1382,7 @@ const filterByCategory = (category) => {
     box-shadow: 0 12px 26px rgba(0, 0, 0, 0.12);
   }
 
-  @media (max-width: 500px) {
+  @media (max-width: 499px) {
     .skeleton-product-card.is-list :deep(.p-card-header) {
       display: none;
     }
@@ -1403,6 +1442,29 @@ const filterByCategory = (category) => {
       right: 1rem;
       bottom: 1rem;
       top: auto;
+    }
+  }
+
+  @media (min-width: 500px) and (max-width: 900px) {
+    #products.products-grid,
+    #products.products-grid .product-skeleton-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 499px) {
+    #products.products-grid,
+    #products.products-grid .product-skeleton-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.6rem;
+    }
+
+    .skeleton-product-card:not(.is-list) .skeleton-product-image {
+      height: 150px;
+    }
+
+    .skeleton-product-card:not(.is-list) .skeleton-product-body {
+      padding: 0.7rem;
     }
   }
 
