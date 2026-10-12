@@ -685,6 +685,7 @@ const filterByCategory = (category) => {
         v-model:visible="cartOpen"
         position="right"
         class="cart-drawer"
+        :style="storeThemeStyle"
         :modal="true"
         :dismissable="!cartLoading"
         :show-close-icon="false"
@@ -1190,6 +1191,8 @@ const filterByCategory = (category) => {
   .cart-drawer :deep(.p-drawer) {
     width: min(90vw, 420px);
     max-width: 100vw;
+    border-left: 3px solid var(--primary-color);
+    background: var(--background-color);
   }
 
   .cart-drawer :deep(.p-drawer-content) {
@@ -1200,7 +1203,7 @@ const filterByCategory = (category) => {
 
   .cart-drawer :deep(.p-drawer-header) {
     padding: 1rem 1.25rem;
-    border-bottom: 1px solid var(--p-content-border-color);
+    border-bottom: 1px solid color-mix(in srgb, var(--primary-color) 35%, transparent);
   }
 
   .cart-header {
@@ -1220,13 +1223,13 @@ const filterByCategory = (category) => {
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-size: 0.7rem;
-    color: #6b7280;
+    color: var(--primary-color);
   }
 
   .cart-header h3 {
     margin: 0;
     font-size: 1.5rem;
-    color: #111827;
+    color: var(--primary-color);
   }
 
   .cart-empty-state {
@@ -1241,6 +1244,10 @@ const filterByCategory = (category) => {
   }
 
   .cart-empty-message {
+    --p-message-info-background: var(--secondary-color);
+    --p-message-info-border-color: var(--secondary-color);
+    --p-message-info-color: var(--secondary-contrast-color);
+    --p-message-text-color: var(--secondary-contrast-color);
     flex: 1;
     align-items: center;
     justify-content: center;
@@ -1269,8 +1276,8 @@ const filterByCategory = (category) => {
     display: flex;
     padding: 0.7rem;
     border-radius: 14px;
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    background: rgba(248, 249, 250, 0.8);
+    border: 1px solid color-mix(in srgb, var(--primary-color) 30%, transparent);
+    background: rgba(255, 255, 255, 0.8);
   }
 
   .cart-item-body {
@@ -1307,7 +1314,7 @@ const filterByCategory = (category) => {
     padding: 0.4rem 0.55rem;
     border-radius: 999px;
     background: white;
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    border: 1px solid color-mix(in srgb, var(--primary-color) 30%, transparent);
   }
 
   .cart-item-controls :deep(.p-button) {
@@ -1318,7 +1325,7 @@ const filterByCategory = (category) => {
   .cart-footer {
     margin-top: auto;
     padding-top: 1rem;
-    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    border-top: 1px solid color-mix(in srgb, var(--primary-color) 35%, transparent);
   }
 
   .cart-total {
