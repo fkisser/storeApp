@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import handler from './[...path].js'
+import handler from './storeProxy.js'
 
 const createResponse = () => ({
   headers: {},
@@ -58,6 +58,27 @@ describe('Vercel store API proxy', () => {
     expect(options.body).toBe(JSON.stringify({ quantity: '2.000', revision: 1 }))
     expect(response.statusCode).toBe(200)
     expect(response.body).toBe('{"cart":{"revision":2}}')
+  })
+
+  it('reads the store slug and multi-segment path from the rewrite query', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      text: async () => '{}'
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const request = {
+      method: 'GET',
+      url: '/api/store?storeSlug=kiosko-juanita&path=carts%2Fcurrent&source=web',
+      query: { storeSlug: 'kiosko-juanita', path: 'carts/current', source: 'web' },
+      headers: { 'x-cart-token': 'opaque-token' }
+    }
+
+    await handler(request, createResponse())
+
+    const [upstreamUrl] = fetchMock.mock.calls[0]
+    expect(upstreamUrl.pathname).toBe('/api/v1/stores/kiosko-juanita/carts/current')
+    expect([...upstreamUrl.searchParams.keys()]).toEqual(['source'])
   })
 
   it('keeps cart creation bodyless and forwards its status and opaque token response', async () => {

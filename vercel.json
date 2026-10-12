@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/v1/stores/:storeSlug/:path+",
+      "destination": "/api/store?storeSlug=:storeSlug&path=:path*"
+    },
+    {
       "source": "/:storeSlug",
       "destination": "/index.html"
     }
