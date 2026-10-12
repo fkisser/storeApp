@@ -3,7 +3,6 @@ import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   product: { type: Object, required: true },
-  layout: { type: String, default: 'cards' },
   quantityLabel: { type: String, required: true },
   subtotal: { type: Number, default: 0 },
   busy: { type: Boolean, default: false },
@@ -40,7 +39,7 @@ const addAriaLabel = computed(() => props.busy
 </script>
 
 <template>
-  <Card class="product-card" :class="{ 'is-list': layout === 'list' }">
+  <Card class="product-card">
     <template #header>
       <img
         v-if="product.image && !imageFailed"
@@ -56,7 +55,6 @@ const addAriaLabel = computed(() => props.busy
       <Tag :value="product.category" severity="primary" rounded class="category-badge" />
       <small class="product-price-base image-price">{{ unitPriceLabel }}</small>
       <Button
-        v-if="layout !== 'list'"
         class="add-fab"
         type="button"
         rounded
@@ -70,10 +68,6 @@ const addAriaLabel = computed(() => props.busy
 
     <template #content>
       <div class="product-body">
-      <div class="meta-row">
-        <small class="product-price-base">{{ unitPriceLabel }}</small>
-      </div>
-
       <h3>{{ product.name }}</h3>
       <p class="product-description">{{ product.description }}</p>
 
@@ -107,16 +101,6 @@ const addAriaLabel = computed(() => props.busy
 
       <div class="product-footer">
         <strong class="product-subtotal">${{ subtotal.toFixed(2) }}</strong>
-        <Button
-          class="add-product-button"
-          type="button"
-          :disabled="busy || inCart || unavailable"
-          :aria-label="busy ? 'Procesando producto' : inCart ? `Añadido ${product.name}` : product.isSoldOut ? `Agotado ${product.name}` : `Añadir ${product.name}`"
-          :label="product.isSoldOut ? 'Agotado' : displayInCart ? 'Añadido' : 'Añadir'"
-          :icon="busy ? undefined : displayInCart ? 'pi pi-check' : 'pi pi-plus'"
-          :loading="busy"
-          @click="$emit('add-to-cart')"
-        />
       </div>
       </div>
     </template>
@@ -156,7 +140,7 @@ const addAriaLabel = computed(() => props.busy
     box-shadow: 0 22px 40px rgba(17, 24, 39, 0.12), 0 8px 16px rgba(17, 24, 39, 0.06);
   }
 
-  .product-card:not(.is-list) {
+  .product-card {
     width: 100%;
     max-width: 350px;
     justify-self: center;
@@ -169,13 +153,13 @@ const addAriaLabel = computed(() => props.busy
     background: #f4f4f4;
   }
 
-  .product-card:not(.is-list) :deep(.p-card-header) {
+  .product-card :deep(.p-card-header) {
     position: relative;
     aspect-ratio: 1 / 1;
     overflow: hidden;
   }
 
-  .product-card:not(.is-list) :deep(.p-card-header)::after {
+  .product-card :deep(.p-card-header)::after {
     position: absolute;
     inset: 66.667% 0 0;
     background: linear-gradient(to bottom, transparent 0%, var(--secondary-color) 100%);
@@ -183,7 +167,7 @@ const addAriaLabel = computed(() => props.busy
     pointer-events: none;
   }
 
-  .product-card:not(.is-list) .product-image {
+  .product-card .product-image {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -220,15 +204,6 @@ const addAriaLabel = computed(() => props.busy
     flex-direction: column;
     gap: 0.9rem;
     padding: 1rem;
-  }
-
-  .meta-row {
-    display: none;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    color: #4b5563;
-    font-size: 0.85rem;
   }
 
   .product-price-base {
@@ -323,89 +298,18 @@ const addAriaLabel = computed(() => props.busy
     font-size: 1.4rem;
   }
 
-  .product-card:not(.is-list) .product-footer :deep(.add-product-button) {
-    display: none;
-  }
-
-  .product-card:not(.is-list) .product-footer {
-    justify-content: center;
-  }
-
   .product-footer {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: center;
     gap: 0.8rem;
     margin-top: auto;
     color: #4b5563;
     font-size: 0.8rem;
   }
 
-  .product-footer :deep(.add-product-button) {
-    min-width: 8.4rem;
-    min-height: 2.9rem;
-    border-radius: 8px;
-    background: var(--p-primary-color);
-    color: var(--p-primary-contrast-color);
-    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
-    transition: transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
-  }
-
-  .product-footer :deep(.add-product-button:hover:not(:disabled)) {
-    transform: translateY(-1px);
-    filter: brightness(1.04);
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.14);
-  }
-
-  .product-footer :deep(.add-product-button:disabled) {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .product-card.is-list {
-    flex-direction: row;
-    align-items: stretch;
-  }
-
-  .product-card.is-list :deep(.p-card-body) {
-    flex-direction: row;
-  }
-
-  .product-card.is-list :deep(.p-card-header) {
-    flex: 0 0 auto;
-    width: auto;
-    height: auto;
-    aspect-ratio: 2 / 3;
-    align-self: stretch;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .product-card.is-list :deep(.p-card-header)::after {
-    position: absolute;
-    inset: 0 0 0 66.667%;
-    background: linear-gradient(to right, transparent 0%, var(--secondary-color) 100%);
-    content: '';
-    pointer-events: none;
-  }
-
-  .product-card.is-list .product-image {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    min-width: 0;
-    height: 100%;
-    min-height: 0;
-    object-fit: cover;
-    object-position: center;
-  }
-
-  .product-card.is-list .product-body {
-    padding: 1rem 1.2rem;
-  }
-
   @media (max-width: 900px) {
-    .product-card:not(.is-list) .product-body {
+    .product-card .product-body {
       justify-content: center;
       align-items: center;
       gap: 0.6rem;
@@ -413,89 +317,64 @@ const addAriaLabel = computed(() => props.busy
       text-align: center;
     }
 
-    .product-card:not(.is-list) .category-badge {
+    .product-card .category-badge {
       top: 0.4rem;
       right: 0.4rem;
       padding: 0.1rem 0.45rem;
       font-size: 0.6rem;
     }
 
-    .product-card:not(.is-list) .add-fab.p-button {
+    .product-card .add-fab.p-button {
       right: 0.5rem;
       bottom: 0.5rem;
       width: 2.5rem;
       height: 2.5rem;
     }
 
-    .product-card:not(.is-list) .add-fab :deep(.p-button-icon) {
+    .product-card .add-fab :deep(.p-button-icon) {
       font-size: 1.1rem;
     }
 
-    .product-card:not(.is-list) .image-price {
+    .product-card .image-price {
       left: 0.4rem;
       bottom: 0.4rem;
       padding: 0.15rem 0.45rem;
       font-size: 0.65rem;
     }
 
-    .product-card:not(.is-list) .product-description {
+    .product-card .product-description {
       font-size: 0.8rem;
       line-height: 1.4;
       max-height: 2.8em;
     }
 
-    .product-card:not(.is-list) .meta-row {
-      justify-content: center;
-    }
-
-    .product-card:not(.is-list) .product-footer {
-      justify-content: center;
+    .product-card .product-footer {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.5rem;
       margin-top: 0;
     }
 
-    .product-card:not(.is-list) .product-footer :deep(.add-product-button) {
-      display: none;
-    }
-
-    .product-card:not(.is-list) h3 {
+    .product-card h3 {
       font-size: 1rem;
       overflow-wrap: anywhere;
     }
 
-    .product-card:not(.is-list) .product-quantity {
+    .product-card .product-quantity {
       width: 100%;
       gap: 0.3rem;
       padding: 0.35rem 0.4rem;
       font-size: 0.85rem;
     }
 
-    .product-card:not(.is-list) .product-quantity :deep(.p-button) {
+    .product-card .product-quantity :deep(.p-button) {
       flex: 0 0 auto;
       width: 1.8rem;
       height: 1.8rem;
     }
 
-    .product-card:not(.is-list) .product-footer {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 0.5rem;
-    }
-
-    .product-card:not(.is-list) .product-subtotal {
+    .product-card .product-subtotal {
       font-size: 1.2rem;
-    }
-  }
-
-  @media (max-width: 499px) {
-    .product-card.is-list .meta-row {
-      display: flex;
-    }
-
-    .product-card.is-list .product-image {
-      display: none;
-    }
-    .product-card.is-list :deep(.p-card-header) {
-      display: none;
     }
   }
 </style>

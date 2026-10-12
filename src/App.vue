@@ -325,29 +325,10 @@ const categories = computed(() => {
 
 const search = ref('')
 const selectedCategories = ref([])
-const layout = ref('cards')
-const isListLayout = computed({
-  get: () => layout.value === 'list',
-  set: (isList) => { layout.value = isList ? 'list' : 'cards' }
-})
 const cartOpen = ref(false)
 const checkoutOpen = ref(false)
 const pendingRemoval = ref(null)
 const removeDialogVisible = ref(false)
-const viewSwitchPt = {
-  root: {
-    style: {
-      '--p-toggleswitch-background': 'var(--primary-color)',
-      '--p-toggleswitch-hover-background': 'var(--primary-color)',
-      '--p-toggleswitch-border-color': 'var(--primary-color)',
-      '--p-toggleswitch-hover-border-color': 'var(--primary-color)',
-      '--p-toggleswitch-checked-background': 'var(--primary-color)',
-      '--p-toggleswitch-checked-hover-background': 'var(--primary-color)',
-      '--p-toggleswitch-checked-border-color': 'var(--primary-color)',
-      '--p-toggleswitch-checked-hover-border-color': 'var(--primary-color)'
-    }
-  }
-}
 const sortOptions = [
   { value: 'name-asc', label: 'Nombre A-Z', icon: 'pi pi-sort-alpha-up' },
   { value: 'name-desc', label: 'Nombre Z-A', icon: 'pi pi-sort-alpha-down' },
@@ -564,11 +545,6 @@ const returnToStore = () => {
         <div class="toolbar">
           <InputText class="toolbar-search" v-model="search" type="search" placeholder="Buscar productos..." aria-label="Buscar productos" />
           <div class="toolbar-selectors">
-            <div class="view-select" aria-label="Elegir tipo de vista">
-              <button type="button" class="view-mode-label" :class="{ 'is-active': !isListLayout }" :aria-pressed="!isListLayout" @click="isListLayout = false">Tarjetas</button>
-              <ToggleSwitch v-model="isListLayout" aria-label="Alternar entre vista de tarjetas y lista" :pt="viewSwitchPt" />
-              <button type="button" class="view-mode-label" :class="{ 'is-active': isListLayout }" :aria-pressed="isListLayout" @click="isListLayout = true">Lista</button>
-            </div>
             <label class="sort-select">
               <span>Ordenar</span>
               <Select v-model="sortOption" :options="sortOptions" option-label="label" aria-label="Ordenar productos" :pt="sortSelectPt">
@@ -598,9 +574,9 @@ const returnToStore = () => {
         </label>
       </section>
   
-      <section id="products" :class="layout === 'list' ? 'products-list' : 'products-grid'">
+      <section id="products" class="products-grid">
         <div v-if="productsLoading || storeNotFound" class="product-skeleton-grid" role="status" aria-label="Cargando productos">
-          <Card v-for="placeholder in 8" :key="placeholder" class="skeleton-product-card" :class="{ 'is-list': layout === 'list' }" aria-hidden="true">
+          <Card v-for="placeholder in 8" :key="placeholder" class="skeleton-product-card" aria-hidden="true">
             <template #header><Skeleton class="skeleton-product-image" /></template>
             <template #content>
               <div class="skeleton-product-body">
@@ -633,7 +609,6 @@ const returnToStore = () => {
           v-for="product in sortedProducts"
           :key="product.id"
           :product="product"
-          :layout="layout"
           :quantity-label="formatQuantityLabel(product)"
           :subtotal="product.pricePerType * getProductQuantity(product)"
           :busy="cartLoading"
@@ -906,7 +881,7 @@ const returnToStore = () => {
 
   .toolbar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: center;
     justify-content: stretch;
     gap: 1rem;
@@ -942,40 +917,9 @@ const returnToStore = () => {
     gap: 1.25rem;
   }
 
-  .view-select {
-    display: inline-flex;
-    min-width: 0;
-    height: 3.25rem;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0 0.6rem;
-    font-weight: 500;
-    color: var(--primary-text-color);
-    white-space: nowrap;
-  }
-
-  .view-mode-label {
-    padding: 0;
-    border: 0;
-    background: none;
-    font: inherit;
-    cursor: pointer;
-    font-size: 0.9rem;
-    white-space: nowrap;
-    color: color-mix(in srgb, var(--primary-text-color) 75%, #4b5563);
-  }
-
-  .view-mode-label.is-active {
-    color: var(--primary-text-color);
-    font-weight: 600;
-  }
-
-  .view-select :deep(.p-toggleswitch) {
-    flex: 0 0 auto;
-  }
-
   .sort-select {
     display: flex;
+    width: 100%;
     min-width: 0;
     padding: 0 0.6rem;
     align-items: center;
@@ -987,8 +931,9 @@ const returnToStore = () => {
   }
 
   .sort-select :deep(.p-select) {
-    min-width: 12rem;
-    max-width: 16rem;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
     height: 3.25rem;
     border-color: color-mix(in srgb, var(--primary-color) 48%, #fff);
     background: #fff;
@@ -1070,10 +1015,6 @@ const returnToStore = () => {
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   }
 
-  #products.products-list {
-    grid-template-columns: 1fr;
-  }
-
   .product-skeleton-grid {
     display: grid;
     width: 100%;
@@ -1135,29 +1076,6 @@ const returnToStore = () => {
     display: grid;
     gap: 0.45rem;
     min-height: 48px;
-  }
-
-  .skeleton-product-card.is-list {
-    flex-direction: row;
-  }
-
-  .skeleton-product-card.is-list :deep(.p-card-body) {
-    flex-direction: row;
-  }
-
-  .skeleton-product-card.is-list :deep(.p-card-header) {
-    flex: 0 0 170px;
-  }
-
-  .skeleton-product-card.is-list .skeleton-product-image {
-    width: 170px;
-    min-width: 170px;
-    height: auto;
-    min-height: 170px;
-  }
-
-  .skeleton-product-card.is-list .skeleton-product-body {
-    padding: 1rem 1.2rem;
   }
 
   .empty-state {
@@ -1382,16 +1300,6 @@ const returnToStore = () => {
     box-shadow: 0 12px 26px rgba(0, 0, 0, 0.12);
   }
 
-  @media (max-width: 499px) {
-    .skeleton-product-card.is-list :deep(.p-card-header) {
-      display: none;
-    }
-
-    .skeleton-product-card.is-list :deep(.p-card-body) {
-      flex-direction: column;
-    }
-  }
-
   @media (max-width: 1050px) {
     .toolbar {
       grid-template-columns: minmax(0, 1fr);
@@ -1417,7 +1325,6 @@ const returnToStore = () => {
       gap: 0.75rem;
     }
 
-    .view-select,
     .sort-select {
       width: 100%;
       min-width: 0;
@@ -1459,11 +1366,11 @@ const returnToStore = () => {
       gap: 0.6rem;
     }
 
-    .skeleton-product-card:not(.is-list) .skeleton-product-image {
+    .skeleton-product-card .skeleton-product-image {
       height: 150px;
     }
 
-    .skeleton-product-card:not(.is-list) .skeleton-product-body {
+    .skeleton-product-card .skeleton-product-body {
       padding: 0.7rem;
     }
   }

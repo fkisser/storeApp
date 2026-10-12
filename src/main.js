@@ -17,7 +17,6 @@ import Select from 'primevue/select'
 import Skeleton from 'primevue/skeleton'
 import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
-import ToggleSwitch from 'primevue/toggleswitch'
 import App from './App.vue'
 
 const app = createApp(App)
@@ -44,6 +43,5 @@ app.component('Select', Select)
 app.component('Skeleton', Skeleton)
 app.component('Tag', Tag)
 app.component('Textarea', Textarea)
-app.component('ToggleSwitch', ToggleSwitch)
 
 app.mount('#app')
