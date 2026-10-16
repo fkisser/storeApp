@@ -1,6 +1,19 @@
 # storeApp
 
-This template should help get you started developing with Vue 3 in Vite.
+Tienda pública creada con Vue 3 y Vite.
+
+## Configuración de la API
+
+El proyecto usa `VITE_API_BASE_URL` como URL del backend. Si no está definida, conserva el túnel de desarrollo actual como valor predeterminado.
+
+Para desarrollo local, copiá `.env.example` como `.env` y modificá el valor si hace falta. Vite recarga las variables sólo al reiniciar `npm run dev`.
+
+Para Cloudflare Pages, configurá estas variables en **Settings → Environment variables** para cada entorno y hacé un nuevo deployment:
+
+- `VITE_API_BASE_URL`: URL pública del backend durante el build; también se usa para resolver URLs de imágenes relativas.
+- `API_BASE_URL`: la misma URL, usada por la Function que reenvía las solicitudes `/api` en tiempo de ejecución.
+
+La Function de Cloudflare incluida en `functions/api/v1/stores/` mantiene las solicitudes del navegador en el mismo origen, por lo que no es necesario abrir CORS en el backend. El comando de build es `npm run build` y el directorio de salida es `dist`.
 
 ## Recommended IDE Setup
 
