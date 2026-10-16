@@ -2,6 +2,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { requestStoreApi } from '../api/store.js'
 import { formatCurrency } from '../utils/formatCurrency.js'
+import { formatDeliveryAddress } from '../utils/formatDeliveryAddress.js'
+import { normalizeFulfillmentWindowId } from '../utils/normalizeFulfillmentWindowId.js'
 
 const props = defineProps({
   items: { type: Array, required: true },
@@ -208,10 +210,10 @@ const confirmOrder = async () => {
         customerPhone: form.phone,
         fulfillmentType: form.fulfillmentType,
         addressSnapshot: form.fulfillmentType === 'DELIVERY'
-          ? { address: form.address, locality: form.locality, notes: form.notes }
+          ? formatDeliveryAddress(form)
           : null,
         fulfillmentDate: form.fulfillmentDate,
-        fulfillmentWindowId: Number(form.fulfillmentWindowId),
+        fulfillmentWindowId: normalizeFulfillmentWindowId(form.fulfillmentWindowId),
         paymentProvider: form.paymentProvider,
         revision: quote.value?.revision ?? props.revision
       }
@@ -235,7 +237,7 @@ onMounted(loadCheckoutOptions)
 <template>
   <div class="checkout-page">
     <header class="checkout-topbar">
-      <Button label="Volver a la tienda" icon="pi pi-arrow-left" text :disabled="sending" @click="emit('back')" />
+      <Button class="back-link" label="Volver a la tienda" icon="pi pi-arrow-left" text :disabled="sending" @click="emit('back')" />
       <p class="checkout-store">{{ storeName }}</p>
     </header>
 
@@ -437,16 +439,27 @@ onMounted(loadCheckoutOptions)
 }
 
 .back-link {
+  --p-button-text-primary-color: var(--primary-color);
+  --p-button-text-primary-hover-background: transparent;
+  --p-button-text-primary-active-background: transparent;
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
   padding: 0.4rem 0;
   border: 0;
   background: transparent;
-  color: #315d36;
+  color: var(--primary-color);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+}
+
+:deep(.p-button.back-link:not(:disabled):hover) {
+  border: 0;
+  background: transparent;
+  color: var(--primary-color);
+  box-shadow: none;
+  transform: none;
 }
 
 .back-link svg {
@@ -466,7 +479,7 @@ onMounted(loadCheckoutOptions)
 
 .checkout-store {
   margin: 0;
-  color: #526256;
+  color: var(--primary-color);
   font-size: 0.9rem;
   font-weight: 700;
 }
@@ -484,6 +497,10 @@ onMounted(loadCheckoutOptions)
   text-transform: uppercase;
 }
 
+.checkout-heading .checkout-eyebrow {
+  color: var(--primary-color);
+}
+
 .checkout-heading h1,
 .order-complete h1 {
   margin: 0;
@@ -492,7 +509,7 @@ onMounted(loadCheckoutOptions)
 }
 
 .item-count {
-  color: #617064;
+  color: var(--primary-color);
   font-size: 0.9rem;
   font-weight: 700;
 }
@@ -709,13 +726,13 @@ onMounted(loadCheckoutOptions)
 }
 
 .summary-total strong {
-  color: #235c2a;
+  color: var(--primary-color);
   font-size: 1.1rem;
 }
 
 .delivery-note {
   margin: 1rem 0 0;
-  color: #67746a;
+  color: var(--primary-color);
   font-size: 0.78rem;
   line-height: 1.5;
 }
@@ -743,7 +760,7 @@ onMounted(loadCheckoutOptions)
   place-items: center;
   margin-bottom: 1.4rem;
   border-radius: 50%;
-  background: rgba(46, 125, 50, 0.12);
+  background: color-mix(in srgb, var(--primary-color) 14%, transparent);
   color: var(--primary-color);
 }
 
@@ -758,16 +775,25 @@ onMounted(loadCheckoutOptions)
 }
 
 .order-complete > p:not(.checkout-eyebrow) {
-  color: #59665c;
+  color: var(--primary-on-background-color);
   line-height: 1.6;
+}
+
+.order-complete .checkout-eyebrow,
+.order-complete h1 {
+  color: var(--primary-color);
+}
+
+.order-complete > p strong {
+  color: var(--primary-color);
 }
 
 .order-reference {
   margin: 0.4rem 0 1.5rem;
   padding: 0.7rem 1rem;
   border-radius: 8px;
-  background: rgba(255, 183, 3, 0.2);
-  color: #263329;
+  background: var(--secondary-color);
+  color: var(--secondary-contrast-color);
   font-size: 1.2rem;
   letter-spacing: 0.08em;
 }

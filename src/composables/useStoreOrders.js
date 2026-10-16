@@ -50,7 +50,10 @@ export const useStoreOrders = ({
   }
 
   const addOrder = (order) => {
-    if (typeof order?.orderTrackingToken !== 'string' || !order.orderTrackingToken) {
+    if (order?.orderId === undefined || order?.orderId === null || !String(order.orderId).trim()) {
+      throw new Error('La API no devolvio el identificador del pedido.')
+    }
+    if (typeof order.orderTrackingToken !== 'string' || !order.orderTrackingToken) {
       throw new Error('La API no devolvio el token de seguimiento del pedido.')
     }
     const createdAt = order.createdAt ?? new Date(now()).toISOString()

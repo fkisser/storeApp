@@ -41,6 +41,14 @@ describe('useStoreOrders', () => {
     expect(mountedOrders.storeOrders.orders.value[0].expiresAt).toBe(1000 + 30 * 24 * 60 * 60 * 1000)
   })
 
+  it('requires an order id to associate the tracking token with the order', () => {
+    mountedOrders = createMountedOrders({ storeSlug: 'almacen-demo', now: () => 1000 })
+
+    expect(() => mountedOrders.storeOrders.addOrder({ orderTrackingToken: 'private-token' }))
+      .toThrow('identificador del pedido')
+    expect(mountedOrders.storeOrders.orders.value).toEqual([])
+  })
+
   it('refreshes status with the tracking header and removes completed orders', async () => {
     const apiRequest = vi.fn().mockResolvedValue({ status: 'COMPLETED' })
     mountedOrders = createMountedOrders({ storeSlug: 'almacen-demo', apiRequest, now: () => 1000 })
