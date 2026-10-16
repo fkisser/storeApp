@@ -4,16 +4,16 @@ Tienda pública creada con Vue 3 y Vite.
 
 ## Configuración de la API
 
-El proyecto usa `VITE_API_BASE_URL` como URL del backend. Si no está definida, conserva el túnel de desarrollo actual como valor predeterminado.
+El proyecto usa una única variable: `API_BASE_URL`. No existe una URL de API predeterminada en el código. Como se trata de una URL pública, Vite la expone al cliente para resolver imágenes relativas; no guardes secretos bajo nombres que comiencen con `API_`.
 
-Para desarrollo local, copiá `.env.example` como `.env` y modificá el valor si hace falta. Vite recarga las variables sólo al reiniciar `npm run dev`.
+Para desarrollo local, copiá `.env.example` como `.env`, configurá `API_BASE_URL` y reiniciá `npm run dev`.
 
-Para Cloudflare Workers Builds, configurá las variables en sus dos contextos correspondientes y hacé un nuevo deployment:
+En Cloudflare Workers Builds, definí `API_BASE_URL` con el mismo valor en los dos ámbitos que Cloudflare separa: **Settings → Builds → Build variables** para Vite y **Settings → Variables and Secrets** para el Worker en tiempo de ejecución.
 
-- En **Settings → Builds → Build variables**, definí `VITE_API_BASE_URL`: URL pública del backend durante el build; también se usa para resolver URLs de imágenes relativas.
-- En **Settings → Variables and Secrets**, definí `API_BASE_URL` con la misma URL. El Worker la usa al reenviar las solicitudes `/api` en tiempo de ejecución.
+Para diagnosticar el proxy temporalmente, definí `API_PROXY_LOGGING` con el valor `true` en **Variables and Secrets**. Los logs registran método, ruta, endpoint upstream, estado y duración, sin incluir tokens, cuerpos ni query params. Quitá o cambiá esta variable al terminar el diagnóstico.
 
 El Worker definido en `worker/index.js` sirve los archivos de `dist`, mantiene el fallback de Vue para rutas como `/:storeSlug` y reenvía las solicitudes de la tienda al backend en el mismo origen, por lo que no es necesario abrir CORS. En Cloudflare Workers Builds, usá `npm run build` como comando de build, `npx wrangler deploy --config wrangler.jsonc` como comando de deploy y `npx wrangler preview --config wrangler.jsonc` como comando de preview.
+
 
 ## Recommended IDE Setup
 

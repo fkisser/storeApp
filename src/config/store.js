@@ -1,24 +1,21 @@
-export const DEFAULT_API_BASE_URL = 'https://wt7ddvj5-8080.brs.devtunnels.ms'
-
 export const resolveApiBaseUrl = (environment = {}) => {
-  const configuredUrl = environment.VITE_API_BASE_URL ?? environment.API_BASE_URL
+  const configuredUrl = environment.API_BASE_URL
 
   if (typeof configuredUrl !== 'string' || !configuredUrl.trim()) {
-    return DEFAULT_API_BASE_URL
+    return ''
   }
 
   try {
     const url = new URL(configuredUrl.trim())
-    if (!['http:', 'https:'].includes(url.protocol)) return DEFAULT_API_BASE_URL
+    if (!['http:', 'https:'].includes(url.protocol)) return ''
     return url.href.replace(/\/$/, '')
   } catch {
-    return DEFAULT_API_BASE_URL
+    return ''
   }
 }
 
 const runtimeEnvironment = {
-  VITE_API_BASE_URL: import.meta.env?.VITE_API_BASE_URL ?? globalThis.process?.env?.VITE_API_BASE_URL,
-  API_BASE_URL: globalThis.process?.env?.API_BASE_URL
+  API_BASE_URL: import.meta.env?.API_BASE_URL ?? globalThis.process?.env?.API_BASE_URL
 }
 
 export const API_BASE_URL = resolveApiBaseUrl(runtimeEnvironment)

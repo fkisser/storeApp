@@ -8,8 +8,13 @@ import { resolveApiBaseUrl } from './src/config/store.js'
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const environment = loadEnv(mode, process.cwd(), '')
+  const apiBaseUrl = resolveApiBaseUrl(environment)
+  if (!apiBaseUrl) {
+    throw new Error('API_BASE_URL must be configured with a valid HTTP(S) URL.')
+  }
 
   return {
+    envPrefix: ['VITE_', 'API_'],
     plugins: [
       vue(),
       vueDevTools(),
@@ -22,7 +27,7 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         '/api': {
-          target: resolveApiBaseUrl(environment),
+          target: apiBaseUrl,
           changeOrigin: true
         }
       },
