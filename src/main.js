@@ -30,6 +30,7 @@ app.use(PrimeVue, {
 	}
 })
 
+
 app.component('Button', Button)
 app.component('Card', Card)
 app.component('Dialog', Dialog)
