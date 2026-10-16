@@ -13,7 +13,7 @@ Para Cloudflare Pages, configurá estas variables en **Settings → Environment 
 - `VITE_API_BASE_URL`: URL pública del backend durante el build; también se usa para resolver URLs de imágenes relativas.
 - `API_BASE_URL`: la misma URL, usada por la Function que reenvía las solicitudes `/api` en tiempo de ejecución.
 
-La Function de Cloudflare incluida en `functions/api/v1/stores/` mantiene las solicitudes del navegador en el mismo origen, por lo que no es necesario abrir CORS en el backend. El comando de build es `npm run build` y el directorio de salida es `dist`.
+La Function de Cloudflare incluida en `functions/api/v1/stores/` mantiene las solicitudes del navegador en el mismo origen, por lo que no es necesario abrir CORS en el backend. Para un proyecto **Cloudflare Pages conectado a Git**, usá `npm run build` como comando de build, `dist` como directorio de salida y no configures un comando de deploy: Pages publica el resultado automáticamente.
 
 ## Recommended IDE Setup
 
