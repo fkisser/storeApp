@@ -8,12 +8,12 @@ El proyecto usa `VITE_API_BASE_URL` como URL del backend. Si no está definida, 
 
 Para desarrollo local, copiá `.env.example` como `.env` y modificá el valor si hace falta. Vite recarga las variables sólo al reiniciar `npm run dev`.
 
-Para Cloudflare Pages, configurá estas variables en **Settings → Environment variables** para cada entorno y hacé un nuevo deployment:
+Para Cloudflare Workers Builds, configurá las variables en sus dos contextos correspondientes y hacé un nuevo deployment:
 
-- `VITE_API_BASE_URL`: URL pública del backend durante el build; también se usa para resolver URLs de imágenes relativas.
-- `API_BASE_URL`: la misma URL, usada por la Function que reenvía las solicitudes `/api` en tiempo de ejecución.
+- En **Settings → Builds → Build variables**, definí `VITE_API_BASE_URL`: URL pública del backend durante el build; también se usa para resolver URLs de imágenes relativas.
+- En **Settings → Variables and Secrets**, definí `API_BASE_URL` con la misma URL. El Worker la usa al reenviar las solicitudes `/api` en tiempo de ejecución.
 
-La Function de Cloudflare incluida en `functions/api/v1/stores/` mantiene las solicitudes del navegador en el mismo origen, por lo que no es necesario abrir CORS en el backend. Para un proyecto **Cloudflare Pages conectado a Git**, usá `npm run build` como comando de build, `dist` como directorio de salida y no configures un comando de deploy: Pages publica el resultado automáticamente.
+El Worker definido en `worker/index.js` sirve los archivos de `dist`, mantiene el fallback de Vue para rutas como `/:storeSlug` y reenvía las solicitudes de la tienda al backend en el mismo origen, por lo que no es necesario abrir CORS. En Cloudflare Workers Builds, usá `npm run build` como comando de build y `npx wrangler deploy` como comando de deploy.
 
 ## Recommended IDE Setup
 
