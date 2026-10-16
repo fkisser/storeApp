@@ -13,7 +13,7 @@ Para Cloudflare Workers Builds, configurá las variables en sus dos contextos co
 - En **Settings → Builds → Build variables**, definí `VITE_API_BASE_URL`: URL pública del backend durante el build; también se usa para resolver URLs de imágenes relativas.
 - En **Settings → Variables and Secrets**, definí `API_BASE_URL` con la misma URL. El Worker la usa al reenviar las solicitudes `/api` en tiempo de ejecución.
 
-El Worker definido en `worker/index.js` sirve los archivos de `dist`, mantiene el fallback de Vue para rutas como `/:storeSlug` y reenvía las solicitudes de la tienda al backend en el mismo origen, por lo que no es necesario abrir CORS. En Cloudflare Workers Builds, usá `npm run build` como comando de build y `npx wrangler deploy` como comando de deploy.
+El Worker definido en `worker/index.js` sirve los archivos de `dist`, mantiene el fallback de Vue para rutas como `/:storeSlug` y reenvía las solicitudes de la tienda al backend en el mismo origen, por lo que no es necesario abrir CORS. En Cloudflare Workers Builds, usá `npm run build` como comando de build, `npx wrangler deploy --config wrangler.jsonc` como comando de deploy y `npx wrangler preview --config wrangler.jsonc` como comando de preview.
 
 ## Recommended IDE Setup
 
