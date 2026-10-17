@@ -12,7 +12,7 @@ En Cloudflare Workers Builds, definí `API_BASE_URL` con el mismo valor en los d
 
 Para diagnosticar el proxy temporalmente, definí `API_PROXY_LOGGING` con el valor `true` en **Variables and Secrets**. Los logs registran método, ruta, endpoint upstream, estado y duración, sin incluir tokens, cuerpos ni query params. Quitá o cambiá esta variable al terminar el diagnóstico.
 
-El Worker definido en `worker/index.js` sirve los archivos de `dist`, mantiene el fallback de Vue para rutas como `/:storeSlug` y reenvía las solicitudes de la tienda al backend en el mismo origen, por lo que no es necesario abrir CORS. En Cloudflare Workers Builds, usá `npm run build` como comando de build, `npx wrangler deploy --config wrangler.jsonc` como comando de deploy y `npx wrangler preview --config wrangler.jsonc` como comando de preview.
+El Worker definido en `worker/index.js` sirve los archivos de `dist`, mantiene el fallback de Vue para rutas como `/:storeSlug` y reenvía las solicitudes de la tienda al backend en el mismo origen, por lo que no es necesario abrir CORS. `keep_vars` conserva las variables configuradas desde Cloudflare entre deploys. En Cloudflare Workers Builds, usá `npm run build` como comando de build, `npx wrangler deploy --config wrangler.jsonc` como comando de deploy y `npx wrangler preview --config wrangler.jsonc` como comando de preview.
 
 
 ## Recommended IDE Setup
