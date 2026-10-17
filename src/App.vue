@@ -1253,7 +1253,6 @@ const openMyOrders = () => {
     display: flex;
     width: 100%;
     min-width: 0;
-    padding: 0 0.6rem;
     align-items: center;
     align-content: center;
     gap: 0.65rem;
@@ -1276,6 +1275,8 @@ const openMyOrders = () => {
     width: 100%;
     padding: 0;
   }
+
+
 
   .category-select :deep(.p-multiselect) {
     flex: 1 1 auto;

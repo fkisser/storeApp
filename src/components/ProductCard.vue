@@ -217,7 +217,7 @@ const addAriaLabel = computed(() => props.busy
     bottom: 0.6rem;
     z-index: 1;
     padding: 0;
-    color: var(--p-primary-contrast-color);
+    color: var(--secondary-contrast-color);
     font-size: 1rem;
     font-weight: 800;
   }
@@ -245,6 +245,7 @@ const addAriaLabel = computed(() => props.busy
     align-items: center;
     justify-content: space-between;
     gap: 0.8rem;
+    margin-top: auto;
     padding: 0.5rem 0.7rem;
     border-radius: 12px;
     background: color-mix(in srgb, var(--secondary-color) 20%, #fff);
