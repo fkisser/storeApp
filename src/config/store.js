@@ -20,10 +20,30 @@ const runtimeEnvironment = {
 
 export const API_BASE_URL = resolveApiBaseUrl(runtimeEnvironment)
 
-const requestedSlug = globalThis.window?.location.pathname.split('/').filter(Boolean)[0]
+const pathnameSegments = globalThis.window?.location.pathname.split('/').filter(Boolean) ?? []
+const requestedSlug = pathnameSegments[0]
 let storeSlug = 'almacen-demo'
 
 export const IS_HOME = !requestedSlug
+
+export const resolveRequestedOrderId = (pathname = '', search = '') => {
+  const segments = pathname.split('/').filter(Boolean)
+  const pathOrderId = segments[1] === 'orders' ? segments[2] : ''
+  const queryOrderId = new URLSearchParams(search).get('orderId')
+  if (queryOrderId) return queryOrderId.trim()
+  if (!pathOrderId) return ''
+
+  try {
+    return decodeURIComponent(pathOrderId).trim()
+  } catch {
+    return pathOrderId.trim()
+  }
+}
+
+export const REQUESTED_ORDER_ID = resolveRequestedOrderId(
+  globalThis.window?.location.pathname ?? '',
+  globalThis.window?.location.search ?? ''
+)
 
 if (requestedSlug) {
 	try {

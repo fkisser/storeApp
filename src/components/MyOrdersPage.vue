@@ -1,9 +1,12 @@
 <script setup>
-import { onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { formatCurrency } from '../utils/formatCurrency.js'
+import { canUploadTransferProof } from '../utils/canUploadTransferProof.js'
+import { formatOrderStatus } from '../utils/formatOrderStatus.js'
 
 const props = defineProps({
   orders: { type: Array, required: true },
+  requestedOrderId: { type: String, default: '' },
   loading: { type: Boolean, default: false },
   orderErrors: { type: Object, required: true },
   transferErrors: { type: Object, required: true },
@@ -16,18 +19,14 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['back'])
+const showAllOrders = ref(false)
+const requestedOrder = computed(() => props.orders.find((order) =>
+  String(order.orderId) === props.requestedOrderId
+))
+const visibleOrders = computed(() => props.requestedOrderId && requestedOrder.value && !showAllOrders.value
+  ? [requestedOrder.value]
+  : props.orders)
 
-const statusLabels = {
-  PENDING_PAYMENT: 'Pendiente de pago',
-  CONFIRMED: 'Confirmado',
-  PREPARING: 'En preparación',
-  READY_FOR_PICKUP: 'Listo para retirar',
-  OUT_FOR_DELIVERY: 'En camino',
-  COMPLETED: 'Completado',
-  CANCELLED: 'Cancelado'
-}
-
-const formatStatus = (status) => statusLabels[status] ?? status?.replaceAll('_', ' ') ?? 'Sin estado'
 const formatMoney = (amount, currency) => formatCurrency(Number(amount ?? 0), currency || 'ARS')
 const formatDate = (value) => value
   ? new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString('es-AR', {
@@ -48,13 +47,19 @@ const handleProof = async (order, event) => {
   }
 }
 
-onMounted(() => void props.refreshAll())
+onMounted(async () => {
+  if (requestedOrder.value) {
+    await props.refreshOrder(requestedOrder.value.orderId)
+    return
+  }
+  if (!props.requestedOrderId) await props.refreshAll()
+})
 </script>
 
 <template>
   <div class="my-orders-page">
     <header class="orders-topbar">
-      <Button label="Volver a la tienda" icon="pi pi-arrow-left" text @click="emit('back')" />
+      <Button class="orders-back-link" label="Volver a la tienda" icon="pi pi-arrow-left" text @click="emit('back')" />
       <p>{{ storeName }}</p>
     </header>
 
@@ -72,18 +77,29 @@ onMounted(() => void props.refreshAll())
       />
     </section>
 
-    <Message v-if="!orders.length" severity="info" :closable="false" class="orders-empty">
+    <Message v-if="requestedOrderId && !requestedOrder" severity="info" :closable="false" class="orders-empty">
+      No hay un token de seguimiento guardado para el pedido #{{ requestedOrderId }} en este navegador. El enlace no incluye ese token; abrilo en el mismo navegador donde realizaste la compra para consultar el estado.
+    </Message>
+
+    <Message v-else-if="!orders.length && !requestedOrderId" severity="info" :closable="false" class="orders-empty">
       No tienes pedidos activos guardados en este navegador.
     </Message>
 
-    <section v-else class="orders-list" aria-label="Pedidos activos">
-      <article v-for="order in orders" :key="order.orderId" class="order-row">
+    <section v-if="visibleOrders.length" class="orders-list" aria-label="Pedidos activos">
+      <Button
+        v-if="requestedOrder && !showAllOrders && orders.length > 1"
+        label="Ver todos mis pedidos"
+        icon="pi pi-list"
+        text
+        @click="showAllOrders = true"
+      />
+      <article v-for="order in visibleOrders" :key="order.orderId" class="order-row">
         <div class="order-row-heading">
           <div>
             <p class="order-number">Pedido #{{ order.orderId }}</p>
             <p class="order-date">{{ formatDate(order.createdAt) }}</p>
           </div>
-          <Tag :value="formatStatus(order.orderStatus)" />
+          <Tag :value="formatOrderStatus(order.orderStatus)" />
         </div>
 
         <dl class="order-details">
@@ -97,7 +113,7 @@ onMounted(() => void props.refreshAll())
           </div>
           <div>
             <dt>Total</dt>
-            <dd>{{ formatMoney(order.totalAmount, order.currency) }}</dd>
+            <dd class="order-total">{{ formatMoney(order.totalAmount, order.currency) }}</dd>
           </div>
           <div>
             <dt>Pago</dt>
@@ -110,7 +126,7 @@ onMounted(() => void props.refreshAll())
           <Button label="Reintentar" icon="pi pi-refresh" text @click="refreshOrder(order.orderId)" />
         </Message>
 
-        <div v-if="order.paymentProvider === 'TRANSFER' && order.orderStatus === 'PENDING_PAYMENT'" class="proof-region">
+        <div v-if="canUploadTransferProof(order)" class="proof-region">
           <p v-if="order.transferAlias" class="transfer-instructions">
             Transferí a <strong>{{ order.transferAlias }}</strong>
             <template v-if="order.transferAccountHolder">, titular <strong>{{ order.transferAccountHolder }}</strong></template>.
@@ -126,7 +142,7 @@ onMounted(() => void props.refreshAll())
               @change="handleProof(order, $event)"
             >
           </label>
-          <Message v-if="transferSuccess[order.orderId]" severity="success" :closable="false">
+          <Message v-if="transferSuccess[order.orderId]" severity="success" :closable="false" class="transfer-success-message">
             {{ transferSuccess[order.orderId] }}
           </Message>
           <Message v-if="transferErrors[order.orderId]" severity="error" :closable="false">
@@ -164,7 +180,7 @@ onMounted(() => void props.refreshAll())
 
 .orders-topbar p {
   margin: 0;
-  color: #526256;
+  color: var(--primary-color);
   font-size: 0.9rem;
   font-weight: 700;
 }
@@ -176,7 +192,7 @@ onMounted(() => void props.refreshAll())
 
 .orders-eyebrow {
   margin: 0 0 0.35rem;
-  color: #66816b;
+  color: var(--primary-color);
   font-size: 0.76rem;
   font-weight: 800;
   text-transform: uppercase;
@@ -187,8 +203,35 @@ onMounted(() => void props.refreshAll())
   font-size: 1.9rem;
 }
 
+.orders-back-link {
+  --p-button-text-primary-color: var(--primary-color);
+  --p-button-text-primary-hover-background: transparent;
+  --p-button-text-primary-active-background: transparent;
+  border: 0;
+  background: transparent;
+  color: var(--primary-color);
+  box-shadow: none;
+  transform: none;
+  transition: none;
+}
+
+:deep(.p-button.orders-back-link:not(:disabled):hover) {
+  border: 0;
+  background: transparent;
+  color: var(--primary-color);
+  box-shadow: none;
+  transform: none;
+}
+
 .orders-empty {
   margin-top: 1rem;
+}
+
+.transfer-success-message {
+  --p-message-success-background: var(--secondary-color);
+  --p-message-success-border-color: var(--secondary-color);
+  --p-message-success-color: var(--secondary-contrast-color);
+  --p-message-text-color: var(--secondary-contrast-color);
 }
 
 .orders-list {
@@ -238,6 +281,11 @@ onMounted(() => void props.refreshAll())
   margin-top: 0.2rem;
   font-size: 0.9rem;
   font-weight: 700;
+}
+
+.order-total,
+.transfer-instructions strong {
+  color: var(--primary-color);
 }
 
 .proof-region {

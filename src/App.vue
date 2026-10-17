@@ -6,7 +6,7 @@ import MyOrdersPage from './components/MyOrdersPage.vue'
 import WelcomePage from './components/WelcomePage.vue'
 import storeInfo from './data/store-info.json'
 import { requestStoreApi } from './api/store.js'
-import { IS_HOME, STORE_SLUG } from './config/store.js'
+import { IS_HOME, REQUESTED_ORDER_ID, STORE_SLUG } from './config/store.js'
 import { useVisitorCart } from './composables/useVisitorCart.js'
 import { useStoreOrders } from './composables/useStoreOrders.js'
 import { resolveStoreAssetUrl } from './utils/resolveStoreAssetUrl.js'
@@ -182,6 +182,10 @@ const storeThemeStyle = computed(() => {
     '--p-textarea-focus-ring-color': primaryColor,
     '--p-tag-primary-background': primaryColor,
     '--p-tag-primary-color': contrastColor,
+    '--p-message-info-background': secondaryColor,
+    '--p-message-info-border-color': secondaryColor,
+    '--p-message-info-color': secondaryContrastColor,
+    '--p-message-text-color': secondaryContrastColor,
     '--p-togglebutton-checked-background': primaryColor,
     '--p-togglebutton-checked-hover-background': hoverColor,
     '--p-togglebutton-checked-border-color': primaryColor,
@@ -530,6 +534,7 @@ onMounted(async () => {
   if (!storeNotFound.value && !storeError.value) {
     await initializeCart()
     await loadDeliveryAvailability()
+    if (REQUESTED_ORDER_ID) myOrdersOpen.value = true
   }
 })
 
@@ -578,7 +583,7 @@ const beginCheckout = async () => {
 
 const returnToStore = () => {
   const storePath = `/${encodeURIComponent(STORE_SLUG)}`
-  if (window.location.pathname !== storePath) {
+  if (window.location.pathname !== storePath || REQUESTED_ORDER_ID) {
     window.location.assign(storePath)
     return
   }
@@ -640,6 +645,7 @@ const openMyOrders = () => {
       <MyOrdersPage
         v-else-if="myOrdersOpen"
         :orders="orders"
+        :requested-order-id="REQUESTED_ORDER_ID"
         :loading="ordersLoading"
         :order-errors="orderErrors"
         :transfer-errors="transferErrors"
@@ -649,7 +655,7 @@ const openMyOrders = () => {
         :refresh-order="refreshOrder"
         :submit-transfer-proof="submitTransferProof"
         :store-name="storeName"
-        @back="myOrdersOpen = false"
+        @back="returnToStore"
       />
       <template v-else>
       <section id="banner" :class="{ 'store-loading-state': settingsLoading }">
